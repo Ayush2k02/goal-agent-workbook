@@ -112,8 +112,10 @@ flowchart TD
 ```bash
 cd ~/goal-agent-workbook
 pnpm install
-export GEMINI_API_KEY=...        # https://aistudio.google.com/apikey
-                                 # (GOOGLE_GENERATIVE_AI_API_KEY also works)
+
+# Put your key in .env (already created, and gitignored):
+#   GEMINI_API_KEY=your-key-here      ← https://aistudio.google.com/apikey
+# The scripts load .env automatically via `tsx --env-file-if-exists`.
 
 pnpm vanilla                     # hand-written agent, default `password` case
 pnpm mastra                      # Mastra agent, same case

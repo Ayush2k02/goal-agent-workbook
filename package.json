@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Learn how a goal agent works — on Gemini — with the Mastra framework and hand-written without it.",
   "scripts": {
-    "vanilla": "tsx src/01-vanilla.ts",
-    "mastra": "tsx src/02-mastra.ts",
-    "both": "tsx src/01-vanilla.ts && tsx src/02-mastra.ts",
+    "vanilla": "tsx --env-file-if-exists=.env src/01-vanilla.ts",
+    "mastra": "tsx --env-file-if-exists=.env src/02-mastra.ts",
+    "both": "pnpm vanilla && pnpm mastra",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
