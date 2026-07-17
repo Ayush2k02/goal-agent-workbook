@@ -7,6 +7,7 @@
   "scripts": {
     "vanilla": "tsx --env-file-if-exists=.env src/01-vanilla.ts",
     "mastra": "tsx --env-file-if-exists=.env src/02-mastra.ts",
+    "bench": "tsx --env-file-if-exists=.env src/03-bench.ts",
     "both": "pnpm vanilla && pnpm mastra",
     "typecheck": "tsc --noEmit"
   },

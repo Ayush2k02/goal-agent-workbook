@@ -1,142 +1,156 @@
 # Goal Agent Workbook
 
-A small, runnable workbook for understanding how a **goal agent** works — the
-kind Sift runs autonomously after synthesis. The same agent is built two ways so
-you can see what an agent framework actually does for you:
+A small, runnable workbook for understanding Sift's autonomous **goal agent** —
+the thing that, after synthesis, looks at one customer case and decides whether
+to **draft a reply**, **tag/close it**, or **abstain**, based on the goals an org
+has configured.
+
+You get the same agent built two ways, plus a frozen bench to test it:
 
 - **[`src/01-vanilla.ts`](src/01-vanilla.ts)** — the agent loop hand-written over the model SDK.
-- **[`src/02-mastra.ts`](src/02-mastra.ts)** — the identical behavior, run by the [Mastra](https://mastra.ai) framework.
+- **[`src/agent.ts`](src/agent.ts)** + **[`src/02-mastra.ts`](src/02-mastra.ts)** — the same agent, run by the [Mastra](https://mastra.ai) framework.
+- **[`src/bench.ts`](src/bench.ts)** + **[`src/03-bench.ts`](src/03-bench.ts)** — a **frozen bench** that checks the agent still behaves correctly.
 
-Both run on **Google Gemini** (via `@ai-sdk/google`) — the same provider the real
-Sift goal agent uses — and share one domain, one decision schema, one set of
-tools, and one prompt. Only the orchestration differs.
+Everything runs on **Google Gemini** (`@ai-sdk/google`) — the same provider real
+Sift uses — and shares one domain, one decision schema, one set of tools, and one
+prompt. Only orchestration differs.
 
-> Simplified **analog** of Sift's goal agent, not the real thing. It captures the
-> shape; callouts marked **"In real Sift"** point at where production differs.
+> Simplified **analog** grounded in the real repo (action-type enum, decision
+> schema, goal config, the frozen-bench harness). Cases are **synthetic** — no
+> customer data. Callouts marked **"real Sift"** point at production files.
 
 ---
 
-## What a goal agent does
+## Two orgs, two behaviors
 
-It's handed **one case** (a customer message) plus a list of **enabled goals**,
-and must decide — for each goal independently — whether to **act** or **abstain**,
-using a read-only `search` tool to resolve real IDs and a terminal
-`submit_decision` tool to finish.
+A goal agent does whatever the org's **enabled goals** tell it to. Same agent,
+different config → different behavior:
+
+| Org | Goals | What it does |
+| --- | --- | --- |
+| **Acme Cloud** (support) | `DRAFT_REPLY` goals | answers how-to questions, deflects billing complaints (no refund promises) |
+| **Nimbus** (community) | `ADD_TAG` / `CLOSE_ACTION_WITH_REASON` goals | tags & closes spam, tags bug reports — **never** drafts a reply |
+
+The walkthrough: a customer has an inquiry → if Acme has a matching **draft**
+goal, the agent drafts a reply; the same message on Nimbus (no reply goal) gets
+**tagged** or **abstained**. Behavior follows configuration.
 
 ```mermaid
 flowchart LR
   IN([case + enabled goals]) --> M{{Gemini}}
-  M -- "calls search" --> S[search<br/>read-only lookup]
-  S -- "results / real IDs" --> M
-  M -- "calls submit_decision" --> D[submit_decision<br/>latch + validation]
+  M -- "search (resolve tag/close IDs)" --> C[org catalog]
+  C -- "real IDs" --> M
+  M -- "submit_decision" --> D[latch + validation<br/>allowed-actions · real IDs · 1 reply max]
   D -- "retryable error" --> M
-  D -- "committed" --> OUT([decision:<br/>act / abstain per goal])
+  D -- committed --> OUT{{decision}}
+  OUT --> R[act: DRAFT_REPLY]
+  OUT --> T[act: ADD_TAG + CLOSE]
+  OUT --> A[abstain]
 ```
 
 The run's real output is the **committed decision** — a side effect of the
 terminal tool — not the model's final sentence.
 
-## One run, end to end
+---
 
-```mermaid
-sequenceDiagram
-  participant R as Runner<br/>(your loop / Mastra)
-  participant G as Gemini
-  participant T as Tools
-  R->>G: system prompt + case + goals + tool defs
-  G->>R: tool call · search("reset password", knowledge_base)
-  R->>T: runSearch(...)
-  T-->>R: [kb_reset_pw]
-  R->>G: tool result
-  G->>R: tool call · submit_decision([act → draft_reply …])
-  R->>T: sink.submit(...)
-  T-->>R: { ok: true, committed }
-  G->>R: "Drafted a KB-grounded reply." (final text)
-  R->>R: read the committed decision
+## Run it
+
+```bash
+cd ~/goal-agent-workbook
+pnpm install
+# put your key in .env (already created, gitignored):
+#   GEMINI_API_KEY=your-key      ← https://aistudio.google.com/apikey
 ```
 
-The loop repeats until the model stops calling tools or hits the step cap (12).
+**Cases:** `A1 A2 A3` (Acme) · `B1 B2 B3` (Nimbus).
+
+```bash
+pnpm mastra A1      # Acme: how-to question  → drafts a reply
+pnpm mastra A2      # Acme: refund demand    → drafts empathy, NO refund promise
+pnpm vanilla B1     # Nimbus: stock spam     → tags Irrelevant + closes
+pnpm mastra B2      # Nimbus: bug report     → tags Bug
+pnpm mastra B3      # Nimbus: how-to question → abstains (no reply goal here)
+```
+
+`pnpm vanilla <case>` and `pnpm mastra <case>` run the same case two ways.
+
+---
+
+## The frozen bench
+
+Answers **"is the goal agent still working correctly?"** — a checked-in set of
+`{frozen case → expected decision}` records, run against the real agent, scored.
+
+```bash
+pnpm bench
+```
+
+```mermaid
+flowchart LR
+  F[frozen cases<br/>+ expected decision] --> RUN[run the SAME agent<br/>agent.ts]
+  RUN --> REC[recorder: capture the<br/>decision, no side effects]
+  REC --> SC[scorers<br/>decision · action-types · assertions]
+  SC --> V{all pass?}
+  V -- yes --> G([exit 0 · green])
+  V -- no --> B([exit 1 · regression])
+```
+
+Each of the 6 cases pins an expected `decision` + set of **action types** +
+safety **assertions** (`english-reply`, `no-fabricated-ids`, `no-refund-promise`).
+The runner exits nonzero if any case fails, so it works as a regression gate. The
+model is non-deterministic, so treat a *consistent* failure as a real regression.
+
+**This mirrors Sift's real frozen bench 1:1:** it runs the *production* agent and
+swaps only `submit_goal_decision`'s executor for a **recorder** that captures the
+decision instead of drafting/tagging. Our decision sink already only records — so
+the demo and the bench run the identical agent. (Real Sift also freezes redacted
+snapshots of real prod actions with a sha256 manifest, and adds LLM-judge scorers
+that grade reply *wording* against a held-out human reply — we keep it structural
+and runnable.)
 
 ---
 
 ## Vanilla vs Mastra — who does each job
 
-| Job | Vanilla (`01`) — you write it | Mastra (`02`) — declared |
+| Job | Vanilla (`01`) — you write it | Mastra (`agent.ts`) — declared |
 | --- | --- | --- |
-| Tool definitions | `tool({ parameters: <zod> })`, no `execute` | `createTool({ inputSchema: <zod>, execute })` |
+| Tool definitions | `tool({ parameters: <zod> })`, no `execute` | `createTool({ inputSchema, execute })` |
 | The agent loop | a hand-written `for` loop over `generateText` | `agent.generate(...)` |
 | Tool dispatch | `runTool()` switch | Mastra routes to each tool's `execute` |
-| History threading | `messages.push(...)` assistant + `tool` turns | internal to `generate` |
-| Step cap | `MAX_STEPS = 12` guard | `{ maxSteps: 12 }` |
+| History threading | `messages.push(...)` | internal to `generate` |
+| Step cap | `MAX_STEPS = 12` | `{ maxSteps: 12 }` |
 | Retry on bad input | tool result with `isError: true` | `execute` returns `{ ok:false, retryable:true }` |
-| Provider swap | rewrite the loop for the new SDK | change one `model:` line |
 
-**The lesson:** Mastra owns the *orchestration* (loop, dispatch, history, cap,
-retry). It does **not** own the agent's *judgment* — you still author the schema,
-the tools' logic, and the prompt. Those live in
-[`schema.ts`](src/schema.ts) · [`tools.ts`](src/tools.ts) · [`prompt.ts`](src/prompt.ts),
-imported unchanged by both files.
+Mastra owns the *orchestration*; you still own the *judgment* — schema, tool
+logic, prompt (shared, in `schema.ts` / `tools.ts` / `prompt.ts`).
 
 ---
 
-## How this maps to the real Sift goal agent
-
-The workbook models the **agent core** (the boxed part). Production wraps it in a
-trigger, a remote invocation, tools that actually mutate data, and tracing:
+## How it maps to real Sift
 
 ```mermaid
 flowchart TD
-  SYN([synthesis finishes]) --> TRIG[eligibility gate<br/>open action? in scope?<br/>once-per-action? turn cap 25]
-  TRIG -- eligible --> INV[HTTP POST /api/v1/responses<br/>→ siftgpt-mastra service]
-  subgraph CORE [the agent core — what this workbook models]
-    AG{{Mastra Goal Agent<br/>Gemini · maxSteps 12}}
-    TOOLS[search · search_knowledge_base<br/>· submit_goal_decision]
+  SYN([synthesis finishes]) --> TRIG[eligibility gate<br/>open action? in scope? turn cap 25]
+  TRIG -- eligible --> INV[HTTP POST /api/v1/responses → siftgpt-mastra]
+  subgraph CORE [what this workbook models]
+    AG{{Mastra Goal Agent · Gemini · maxSteps 12}}
+    TOOLS[search · submit_goal_decision]
     AG <--> TOOLS
   end
   INV --> AG
-  TOOLS --> ACT[executeGoalDecision<br/>draft reply · run macro · tag]
-  AG --> SPANS[(mastra_ai_spans<br/>+ Datadog)]
+  TOOLS --> ACT[executeGoalDecision<br/>DRAFT_REPLY · ADD_TAG · CLOSE …]
+  AG --> SPANS[(mastra_ai_spans + Datadog)]
 ```
 
 | Real Sift piece | File |
 | --- | --- |
-| Trigger + eligibility gate | `semantic-goal-agent-trigger.ts` |
-| Remote invocation + run-input prompt | `workflow-goal-agent-client.ts` |
-| Terminal decision tool that acts | `submit-goal-decision.ts` |
-| Agent wiring, Gemini, tracing | `apps/siftgpt-mastra/src/mastra/index.ts` |
-
----
-
-## Run it end to end
-
-```bash
-cd ~/goal-agent-workbook
-pnpm install
-
-# Put your key in .env (already created, and gitignored):
-#   GEMINI_API_KEY=your-key-here      ← https://aistudio.google.com/apikey
-# The scripts load .env automatically via `tsx --env-file-if-exists`.
-
-pnpm vanilla                     # hand-written agent, default `password` case
-pnpm mastra                      # Mastra agent, same case
-pnpm both                        # run both back to back and compare
-```
-
-Pick a different case to see a different path:
-
-| case | what the agent should do |
-| --- | --- |
-| `password` (default) | recognize a how-to question → `search` the KB → draft a grounded reply |
-| `refund` | recognize a billing issue → **abstain** and tag it (never auto-promise a refund) |
-| `praise` | recognize positive feedback → draft a short thank-you |
-
-```bash
-pnpm vanilla refund
-pnpm mastra praise
-```
-
-You'll see each step logged: the model narrates, calls `search`, then
-`submit_decision`; the committed decision is printed at the end.
+| Action-type enum (`GOAL_ALLOWED_ACTION_TYPES`) | `packages/data/timescale-db/src/types/workflow-action-registry.ts` |
+| Goal config model (`WorkflowGoal`) | `packages/data/timescale-db/src/models/workflow-goal.ts` |
+| Decision schema + terminal tool | `packages/core/agents/src/agents/tools/submit-goal-decision.ts` |
+| Decision executor (drafts/tags/closes) | `packages/core/action-manager/src/workflow/execute-goal-decision.ts` |
+| The 4 ACTION-CONTEXT blocks | `packages/core/action-manager/src/workflow/get-action-context.ts` |
+| **The frozen bench** | `apps/siftgpt-mastra/src/evals/goal-agent/bench/` |
+| Per-org goal defs (draft vs tag) | `apps/siftgpt-mastra/src/evals/goal-agent/suites/replay/definitions.ts` |
 
 ---
 
@@ -144,24 +158,25 @@ You'll see each step logged: the model narrates, calls `search`, then
 
 | File | What it is |
 | --- | --- |
-| [`src/domain.ts`](src/domain.ts) | the toy world: cases, goals, KB, tags |
+| [`src/domain.ts`](src/domain.ts) | two orgs, their goals + catalogs, and the 6 cases |
 | [`src/model.ts`](src/model.ts) | the shared Gemini model + key resolution (mirrors Sift) |
-| [`src/schema.ts`](src/schema.ts) | the one zod decision schema, used by both |
-| [`src/tools.ts`](src/tools.ts) | tool backing logic: `search` + the decision sink (latch + validation) |
-| [`src/prompt.ts`](src/prompt.ts) | the stable system prompt + the per-run input prompt |
-| [`src/01-vanilla.ts`](src/01-vanilla.ts) | the whole agent as a hand-written loop — read first |
-| [`src/02-mastra.ts`](src/02-mastra.ts) | the same agent, framework-managed — read second, then diff |
+| [`src/schema.ts`](src/schema.ts) | the one decision schema (Sift's `submitGoalDecisionSchema` shape) |
+| [`src/tools.ts`](src/tools.ts) | `search` + the decision sink (latch, validation, records-not-executes) |
+| [`src/prompt.ts`](src/prompt.ts) | system prompt + the 4 ACTION-CONTEXT blocks |
+| [`src/agent.ts`](src/agent.ts) | the shared Mastra agent (used by the demo AND the bench) |
+| [`src/01-vanilla.ts`](src/01-vanilla.ts) | the agent as a hand-written loop — read first |
+| [`src/02-mastra.ts`](src/02-mastra.ts) | run one case on the framework agent |
+| [`src/bench.ts`](src/bench.ts) · [`src/03-bench.ts`](src/03-bench.ts) | the frozen bench: dataset + scored runner |
 
 ## Exercises
 
-1. **Break the cap.** Set `MAX_STEPS = 1` in `01` and run `password` — the model
-   can't both `search` and `submit_decision` in one step, so it never finishes.
-   That's why Sift caps at 12.
-2. **Force a retry.** In `tools.ts`, give `goal_escalate_billing`
-   `allowedActions: []`, run `refund`, and watch the model read the validation
-   error and correct itself — with zero orchestration code from you.
-3. **Delete the latch.** Remove the `if (committed) …` guard in
-   `createDecisionSink` and watch a double `submit_decision` overwrite the first
-   decision. That's the bug the latch prevents.
-4. **Read the real thing.** Open `submit-goal-decision.ts` and
-   `workflow-goal-agent-client.ts` with the mapping table above beside you.
+1. **Watch config change behavior.** Run `B3` (how-to on Nimbus → abstain), then
+   add a `DRAFT_REPLY` goal to Nimbus in `domain.ts` and re-run — it now drafts.
+2. **Break a bench case.** Delete the `no-refund-promise` guard's intent by
+   editing Acme's `goal_deflect_billing` instructions to allow refunds, run
+   `pnpm bench`, and watch `A2` go red.
+3. **Force a retry.** Give a goal `allowedActions: []`, run its case, and watch
+   the model read the validation error and correct itself — zero orchestration
+   code from you.
+4. **Read the real thing.** Open `submit-goal-decision.ts` and the bench
+   `README.md` with the mapping table above beside you.
