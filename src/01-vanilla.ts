@@ -15,7 +15,8 @@
  */
 
 import { generateText, tool, type CoreMessage } from "ai"
-import { CASES, ORGS } from "./domain"
+import { CASES, ORGS } from "./data.store"
+import { evaluateEligibility } from "./eligibility"
 import { google, MODEL } from "./model"
 import { buildInputPrompt, SYSTEM_PROMPT } from "./prompt"
 import { decisionInputSchema, searchInputSchema } from "./schema"
@@ -42,11 +43,18 @@ async function main() {
     process.exit(1)
   }
   const org = ORGS[action.orgKey]
-  const sink = createDecisionSink(org) // per-run tool state (latch lives here)
-
-  const messages: CoreMessage[] = [{ role: "user", content: buildInputPrompt(action, org, org.goals) }]
 
   console.log(`\n=== VANILLA goal agent · ${MODEL} · ${org.displayName} · case ${action.id} (${caseId}) ===\n`)
+
+  // Pre-invocation gate: if the action isn't eligible, the agent is never called.
+  const elig = evaluateEligibility(action)
+  if (!elig.eligible) {
+    console.log(`  ⏭️  skipped — ${elig.reason} (goal agent not invoked)`)
+    return
+  }
+
+  const sink = createDecisionSink(org) // per-run tool state (latch lives here)
+  const messages: CoreMessage[] = [{ role: "user", content: buildInputPrompt(action, org, org.goals) }]
 
   // --- The agent loop. This for-loop IS the agent. -------------------------
   for (let step = 1; step <= MAX_STEPS; step++) {

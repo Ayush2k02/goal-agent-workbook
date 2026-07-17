@@ -3,55 +3,58 @@
  *
  * Run:  pnpm bench
  *
- * For each frozen case: run the SAME production agent (agent.ts), capture the
- * recorded decision, and score it against the pinned groundTruth with
- * deterministic scorers (the toy analog of Sift's `core/scorers/quality.ts`):
+ * For each frozen case: first apply the eligibility gate (skip cases cost ZERO
+ * model calls — the agent is never invoked, exactly like production); otherwise
+ * run the SAME production agent (agent.ts), capture the recorded decision, and
+ * score it against the pinned groundTruth with deterministic scorers (the toy
+ * analog of Sift's core/scorers/quality.ts):
  *
- *   - decision-match   → act vs abstain matches
+ *   - decision-match   → act / abstain / skipped matches (+ skip reason)
  *   - actions-match    → the set of action types matches
  *   - <assertions>     → english-reply / no-fabricated-ids / no-refund-promise
  *
- * Prints PASS/FAIL per case and a summary, and EXITS NONZERO if any case fails —
- * so it works as a regression gate. Because the model is non-deterministic, an
- * occasional flake is expected; a case that fails consistently is a real
- * regression. (Real Sift adds LLM-judge scorers + "settled" case selection to
- * tame this; we keep it simple and structural.)
+ * Exits nonzero if any case fails, so it works as a regression gate. The model
+ * is non-deterministic, so treat a CONSISTENT failure as a real regression.
  */
 
 import { runMastraGoalAgent } from "./agent"
-import { BENCH, BENCH_VERSION, type Assertion } from "./bench"
-import { CASES, ORGS, type ActionType } from "./domain"
+import { type ActionType, BENCH, BENCH_VERSION, CASES, ORGS } from "./data.store"
+import { evaluateEligibility } from "./eligibility"
 import { MODEL } from "./model"
 import type { DecisionInput } from "./schema"
 
 const REFUND_BLOCKLIST = /\b(refund(ed|ing)?|credit(ed)?|reimburs\w*|reversal|reversed|money back)\b/i
 
-const allActions = (d: DecisionInput | null): { type: ActionType; text?: string; tagId?: string; closeReasonId?: string }[] =>
+type FlatAction = { type: ActionType; text?: string; tagId?: string; closeReasonId?: string }
+const allActions = (d: DecisionInput | null): FlatAction[] =>
   (d?.decisions ?? []).flatMap((b) =>
     b.actions.map((a) => ({ type: a.type, text: a.params?.text, tagId: a.params?.tagId, closeReasonId: a.params?.closeReasonId })),
   )
-
 const sortedTypes = (types: ActionType[]) => [...types].sort().join(",")
 
-/** Returns [] on pass, or a list of failure reasons. */
-function score(caseId: string, decision: DecisionInput | null): string[] {
+/** One run result: either a skip (gate fired) or a committed decision. */
+type Outcome = { decision: "act" | "abstain" | "skipped"; skipReason?: string; committed: DecisionInput | null }
+
+function score(caseId: string, out: Outcome): string[] {
   const bc = BENCH.find((b) => b.caseId === caseId)!
   const org = ORGS[CASES[caseId].orgKey]
   const gt = bc.groundTruth
   const fails: string[] = []
 
-  const actualDecision = decision?.decision ?? "abstain" // no submit = abstain
-  if (actualDecision !== gt.decision) fails.push(`decision: expected ${gt.decision}, got ${actualDecision}`)
+  if (out.decision !== gt.decision) fails.push(`decision: expected ${gt.decision}, got ${out.decision}`)
+  if (gt.decision === "skipped" && out.decision === "skipped" && out.skipReason !== gt.skipReason) {
+    fails.push(`skipReason: expected ${gt.skipReason}, got ${out.skipReason}`)
+  }
 
-  const actions = allActions(decision)
+  const actions = allActions(out.committed)
   const gotTypes = sortedTypes(actions.map((a) => a.type))
   const wantTypes = sortedTypes(gt.actions)
   if (gotTypes !== wantTypes) fails.push(`actions: expected [${wantTypes}], got [${gotTypes}]`)
 
-  for (const assertion of gt.assertions as Assertion[]) {
+  for (const assertion of gt.assertions) {
     if (assertion === "english-reply") {
       const replies = actions.filter((a) => a.type === "DRAFT_REPLY")
-      if (replies.length === 0 || replies.some((r) => !r.text?.trim())) fails.push("english-reply: DRAFT_REPLY missing non-empty text")
+      if (replies.length === 0 || replies.some((r) => !r.text?.trim())) fails.push("english-reply: DRAFT_REPLY missing text")
     }
     if (assertion === "no-fabricated-ids") {
       const tagIds = new Set(org.tags.map((t) => t.id))
@@ -63,13 +66,21 @@ function score(caseId: string, decision: DecisionInput | null): string[] {
     }
     if (assertion === "no-refund-promise") {
       for (const a of actions) {
-        if (a.type === "DRAFT_REPLY" && a.text && REFUND_BLOCKLIST.test(a.text)) {
-          fails.push(`no-refund-promise: reply contains a refund/credit promise`)
-        }
+        if (a.type === "DRAFT_REPLY" && a.text && REFUND_BLOCKLIST.test(a.text)) fails.push("no-refund-promise: reply promises a refund/credit")
       }
     }
   }
   return fails
+}
+
+async function runCase(caseId: string): Promise<Outcome> {
+  const action = CASES[caseId]
+  const org = ORGS[action.orgKey]
+  // Eligibility gate first — a skip never invokes the model.
+  const elig = evaluateEligibility(action)
+  if (!elig.eligible) return { decision: "skipped", skipReason: elig.reason, committed: null }
+  const { decision } = await runMastraGoalAgent(org, action)
+  return { decision: decision?.decision ?? "abstain", committed: decision }
 }
 
 async function main() {
@@ -77,13 +88,12 @@ async function main() {
   let passed = 0
   const failedCases: string[] = []
 
-  // Sequential keeps output readable and avoids hammering rate limits.
   for (const bc of BENCH) {
-    const action = CASES[bc.caseId]
-    const org = ORGS[action.orgKey]
-    const { decision } = await runMastraGoalAgent(org, action) // same agent as the demo
-    const fails = score(bc.caseId, decision)
-    const want = `${bc.groundTruth.decision}${bc.groundTruth.actions.length ? ` [${bc.groundTruth.actions.join("+")}]` : ""}`
+    const org = ORGS[CASES[bc.caseId].orgKey]
+    const out = await runCase(bc.caseId)
+    const fails = score(bc.caseId, out)
+    const gt = bc.groundTruth
+    const want = gt.decision === "skipped" ? `skipped (${gt.skipReason})` : `${gt.decision}${gt.actions.length ? ` [${gt.actions.join("+")}]` : ""}`
     if (fails.length === 0) {
       passed++
       console.log(`  ✅ ${bc.caseId}  ${org.displayName.padEnd(11)} → ${want}`)

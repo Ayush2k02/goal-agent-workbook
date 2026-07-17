@@ -10,7 +10,8 @@
  */
 
 import { runMastraGoalAgent } from "./agent"
-import { CASES, ORGS } from "./domain"
+import { CASES, ORGS } from "./data.store"
+import { evaluateEligibility } from "./eligibility"
 import { MODEL } from "./model"
 
 async function main() {
@@ -23,6 +24,13 @@ async function main() {
   const org = ORGS[action.orgKey]
 
   console.log(`\n=== MASTRA goal agent · ${MODEL} · ${org.displayName} · case ${action.id} (${caseId}) ===\n`)
+
+  // Pre-invocation gate: if the action isn't eligible, the agent is never called.
+  const elig = evaluateEligibility(action)
+  if (!elig.eligible) {
+    console.log(`  ⏭️  skipped — ${elig.reason} (goal agent not invoked)`)
+    return
+  }
 
   const { decision, auditText } = await runMastraGoalAgent(org, action, (e) => {
     if (e.tool === "search") console.log(`  🔧 search(${JSON.stringify(e.input)})`)

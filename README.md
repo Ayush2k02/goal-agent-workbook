@@ -9,11 +9,13 @@ You get the same agent built two ways, plus a frozen bench to test it:
 
 - **[`src/01-vanilla.ts`](src/01-vanilla.ts)** — the agent loop hand-written over the model SDK.
 - **[`src/agent.ts`](src/agent.ts)** + **[`src/02-mastra.ts`](src/02-mastra.ts)** — the same agent, run by the [Mastra](https://mastra.ai) framework.
-- **[`src/bench.ts`](src/bench.ts)** + **[`src/03-bench.ts`](src/03-bench.ts)** — a **frozen bench** that checks the agent still behaves correctly.
+- **[`src/03-bench.ts`](src/03-bench.ts)** — a **frozen bench** that checks the agent still behaves correctly.
 
-Everything runs on **Google Gemini** (`@ai-sdk/google`) — the same provider real
-Sift uses — and shares one domain, one decision schema, one set of tools, and one
-prompt. Only orchestration differs.
+All the data — orgs, cases, active cases, and the frozen-bench expectations —
+lives in one file, **[`src/data.store.ts`](src/data.store.ts)**; every other file
+imports from it. Everything runs on **Google Gemini** (`@ai-sdk/google`) — the
+same provider real Sift uses — and shares one decision schema, one set of tools,
+and one prompt. Only orchestration differs.
 
 > Simplified **analog** grounded in the real repo (action-type enum, decision
 > schema, goal config, the frozen-bench harness). Cases are **synthetic** — no
@@ -21,7 +23,7 @@ prompt. Only orchestration differs.
 
 ---
 
-## Two orgs, two behaviors
+## Three orgs, different behaviors
 
 A goal agent does whatever the org's **enabled goals** tell it to. Same agent,
 different config → different behavior:
@@ -30,14 +32,17 @@ different config → different behavior:
 | --- | --- | --- |
 | **Acme Cloud** (support) | `DRAFT_REPLY` goals | answers how-to questions, deflects billing complaints (no refund promises) |
 | **Nimbus** (community) | `ADD_TAG` / `CLOSE_ACTION_WITH_REASON` goals | tags & closes spam, tags bug reports — **never** drafts a reply |
+| **Lyft** (mirrors the redacted eval fixtures) | draft/intake + tag-close goals | deflects public complaints to DM, runs no-refund charge intake, tags & closes noise |
 
-The walkthrough: a customer has an inquiry → if Acme has a matching **draft**
-goal, the agent drafts a reply; the same message on Nimbus (no reply goal) gets
+The walkthrough: a customer has an inquiry → if the org has a matching **draft**
+goal, the agent drafts a reply; the same message on a tag/triage org gets
 **tagged** or **abstained**. Behavior follows configuration.
 
 ```mermaid
 flowchart LR
-  IN([case + enabled goals]) --> M{{Gemini}}
+  IN([action + goals]) --> GATE{eligible?<br/>closed? already ran?}
+  GATE -- "no" --> SKIP([⏭ skip: agent never invoked])
+  GATE -- "yes" --> M{{Gemini}}
   M -- "search (resolve tag/close IDs)" --> C[org catalog]
   C -- "real IDs" --> M
   M -- "submit_decision" --> D[latch + validation<br/>allowed-actions · real IDs · 1 reply max]
@@ -51,6 +56,19 @@ flowchart LR
 The run's real output is the **committed decision** — a side effect of the
 terminal tool — not the model's final sentence.
 
+### The eligibility gate (skip before invoking)
+
+Before the model is ever called, a gate decides whether the agent should run at
+all — mirroring Sift's trigger (`evaluateGoalAgentEligibility`). We model two of
+the real skip reasons: **`action_closed`** (terminal status) and
+**`already_ran_for_action`** (once-per-action). A skipped case costs **zero**
+model calls.
+
+```bash
+pnpm mastra X1     # CLOSED action    → ⏭ skipped (action_closed)
+pnpm vanilla X2    # already decided  → ⏭ skipped (already_ran_for_action)
+```
+
 ---
 
 ## Run it
@@ -62,7 +80,7 @@ pnpm install
 #   GEMINI_API_KEY=your-key      ← https://aistudio.google.com/apikey
 ```
 
-**Cases:** `A1 A2 A3` (Acme) · `B1 B2 B3` (Nimbus).
+**Cases:** `A1 A2 A3` (Acme) · `B1 B2 B3` (Nimbus) · `L1 L2` (Lyft) · `X1 X2` (skip demos).
 
 ```bash
 pnpm mastra A1      # Acme: how-to question  → drafts a reply
@@ -70,6 +88,9 @@ pnpm mastra A2      # Acme: refund demand    → drafts empathy, NO refund promi
 pnpm vanilla B1     # Nimbus: stock spam     → tags Irrelevant + closes
 pnpm mastra B2      # Nimbus: bug report     → tags Bug
 pnpm mastra B3      # Nimbus: how-to question → abstains (no reply goal here)
+pnpm mastra L1      # Lyft: public charge complaint → intake draft, NO refund promise
+pnpm mastra L2      # Lyft: stock spam       → tags Irrelevant + closes
+pnpm mastra X1      # Lyft: CLOSED action    → ⏭ skipped, agent not invoked
 ```
 
 `pnpm vanilla <case>` and `pnpm mastra <case>` run the same case two ways.
@@ -87,18 +108,23 @@ pnpm bench
 
 ```mermaid
 flowchart LR
-  F[frozen cases<br/>+ expected decision] --> RUN[run the SAME agent<br/>agent.ts]
+  F[frozen cases<br/>+ expected decision] --> GATE{eligible?}
+  GATE -- "no" --> SK[expect skip<br/>0 model calls]
+  GATE -- "yes" --> RUN[run the SAME agent<br/>agent.ts]
   RUN --> REC[recorder: capture the<br/>decision, no side effects]
   REC --> SC[scorers<br/>decision · action-types · assertions]
+  SK --> SC
   SC --> V{all pass?}
   V -- yes --> G([exit 0 · green])
   V -- no --> B([exit 1 · regression])
 ```
 
-Each of the 6 cases pins an expected `decision` + set of **action types** +
-safety **assertions** (`english-reply`, `no-fabricated-ids`, `no-refund-promise`).
-The runner exits nonzero if any case fails, so it works as a regression gate. The
-model is non-deterministic, so treat a *consistent* failure as a real regression.
+Each of the 10 cases pins an expected `decision` (`act` / `abstain` / `skipped`)
++ set of **action types** + safety **assertions** (`english-reply`,
+`no-fabricated-ids`, `no-refund-promise`). The two skip cases assert the gate
+fires and the model is never called. The runner exits nonzero if any case fails,
+so it works as a regression gate. The model is non-deterministic, so treat a
+*consistent* failure as a real regression.
 
 **This mirrors Sift's real frozen bench 1:1:** it runs the *production* agent and
 swaps only `submit_goal_decision`'s executor for a **recorder** that captures the
@@ -144,6 +170,7 @@ flowchart TD
 
 | Real Sift piece | File |
 | --- | --- |
+| Eligibility gate (`evaluateGoalAgentEligibility`, skip reasons) | `packages/core/action-manager/src/workflow/semantic-goal-agent-trigger.ts` |
 | Action-type enum (`GOAL_ALLOWED_ACTION_TYPES`) | `packages/data/timescale-db/src/types/workflow-action-registry.ts` |
 | Goal config model (`WorkflowGoal`) | `packages/data/timescale-db/src/models/workflow-goal.ts` |
 | Decision schema + terminal tool | `packages/core/agents/src/agents/tools/submit-goal-decision.ts` |
@@ -158,7 +185,8 @@ flowchart TD
 
 | File | What it is |
 | --- | --- |
-| [`src/domain.ts`](src/domain.ts) | two orgs, their goals + catalogs, and the 6 cases |
+| [`src/data.store.ts`](src/data.store.ts) | **all data**: orgs, cases, active cases, and frozen-bench expectations |
+| [`src/eligibility.ts`](src/eligibility.ts) | the pre-invocation skip gate (`action_closed`, `already_ran_for_action`) |
 | [`src/model.ts`](src/model.ts) | the shared Gemini model + key resolution (mirrors Sift) |
 | [`src/schema.ts`](src/schema.ts) | the one decision schema (Sift's `submitGoalDecisionSchema` shape) |
 | [`src/tools.ts`](src/tools.ts) | `search` + the decision sink (latch, validation, records-not-executes) |
@@ -166,12 +194,12 @@ flowchart TD
 | [`src/agent.ts`](src/agent.ts) | the shared Mastra agent (used by the demo AND the bench) |
 | [`src/01-vanilla.ts`](src/01-vanilla.ts) | the agent as a hand-written loop — read first |
 | [`src/02-mastra.ts`](src/02-mastra.ts) | run one case on the framework agent |
-| [`src/bench.ts`](src/bench.ts) · [`src/03-bench.ts`](src/03-bench.ts) | the frozen bench: dataset + scored runner |
+| [`src/03-bench.ts`](src/03-bench.ts) | the frozen bench: scored runner |
 
 ## Exercises
 
 1. **Watch config change behavior.** Run `B3` (how-to on Nimbus → abstain), then
-   add a `DRAFT_REPLY` goal to Nimbus in `domain.ts` and re-run — it now drafts.
+   add a `DRAFT_REPLY` goal to Nimbus in `data.store.ts` and re-run — it now drafts.
 2. **Break a bench case.** Delete the `no-refund-promise` guard's intent by
    editing Acme's `goal_deflect_billing` instructions to allow refunds, run
    `pnpm bench`, and watch `A2` go red.

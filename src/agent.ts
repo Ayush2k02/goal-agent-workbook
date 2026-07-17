@@ -13,7 +13,7 @@
 
 import { Agent } from "@mastra/core/agent"
 import { createTool } from "@mastra/core/tools"
-import type { Action, Org } from "./domain"
+import type { Action, Org } from "./data.store"
 import { google, MODEL } from "./model"
 import { buildInputPrompt, SYSTEM_PROMPT } from "./prompt"
 import { decisionInputSchema, searchInputSchema } from "./schema"

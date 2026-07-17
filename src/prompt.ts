@@ -8,7 +8,7 @@
  * Sift's `getActionContext` produces.
  */
 
-import type { Action, Goal, Org } from "./domain"
+import type { Action, Goal, Org } from "./data.store"
 
 export const SYSTEM_PROMPT = `You are a customer-support Goal Agent.
 
@@ -34,7 +34,7 @@ const renderActionContext = (action: Action): string => {
     .join("\n")
   return [
     `### What we already know\n${action.knownFacts ?? "No prior facts on file."}`,
-    `### Current action ${action.id} (#${action.easyId})\nStatus: ${action.status} · Platform: ${action.platform} · Customer: ${action.customerHandle}\nThread:\n${thread}`,
+    `### Current action ${action.id} (#${action.easyId})\nStatus: ${action.operationStatus} · Platform: ${action.platform} · Customer: ${action.customerHandle}\nThread:\n${thread}`,
     `### Internal notes\n${action.internalNotes ?? "No internal notes."}`,
     `### Customer timeline\n${action.customerTimeline ?? "No prior cases."}`,
   ].join("\n\n")

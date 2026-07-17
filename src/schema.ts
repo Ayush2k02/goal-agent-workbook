@@ -13,7 +13,7 @@
  */
 
 import { z } from "zod"
-import { GOAL_ALLOWED_ACTION_TYPES } from "./domain"
+import { GOAL_ALLOWED_ACTION_TYPES } from "./data.store"
 
 export const searchInputSchema = z.object({
   kind: z.enum(["tag", "close_reason"]).describe("Which catalog to search."),

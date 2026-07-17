@@ -14,7 +14,7 @@
  * decision — no side effects — so we can inspect and score it.
  */
 
-import { type Org, REPLY_PRODUCING } from "./domain"
+import { type Org, REPLY_PRODUCING } from "./data.store"
 import type { DecisionInput } from "./schema"
 
 // ---------------------------------------------------------------------------
