@@ -1,131 +1,165 @@
 # Goal Agent Workbook
 
-A runnable, side-by-side workbook for learning how a **goal agent** works — the
-kind Sift runs autonomously after synthesis. You get the *same* agent built two
-ways:
+A small, runnable workbook for understanding how a **goal agent** works — the
+kind Sift runs autonomously after synthesis. The same agent is built two ways so
+you can see what an agent framework actually does for you:
 
-- **`src/01-vanilla.ts`** — hand-written against the raw Anthropic Messages API.
-  You write the agent loop, the tool dispatch, the message threading, the step
-  cap, and the retry-on-error yourself.
-- **`src/02-mastra.ts`** — the exact same behavior, built with the
-  [Mastra](https://mastra.ai) framework. The loop and all its bookkeeping become
-  a single `agent.generate(...)` call.
+- **[`src/01-vanilla.ts`](src/01-vanilla.ts)** — the agent loop hand-written over the model SDK.
+- **[`src/02-mastra.ts`](src/02-mastra.ts)** — the identical behavior, run by the [Mastra](https://mastra.ai) framework.
 
-Both files import the **same** domain, the **same** decision schema, the **same**
-tool-backing functions, and the **same** prompts. The only thing that changes is
-who runs the loop — you, or the framework. That's the whole lesson.
+Both run on **Google Gemini** (via `@ai-sdk/google`) — the same provider the real
+Sift goal agent uses — and share one domain, one decision schema, one set of
+tools, and one prompt. Only the orchestration differs.
 
-> This is a simplified **analog** of Sift's real goal agent, not the real thing.
-> It captures the shape (one case + enabled goals → act/abstain per goal, via a
-> read-only `search` tool and a terminal `submit_decision` tool with a latch and
-> retryable validation) but runs standalone with just an API key. Callouts marked
-> **"In real Sift"** point at where the production agent differs.
+> Simplified **analog** of Sift's goal agent, not the real thing. It captures the
+> shape; callouts marked **"In real Sift"** point at where production differs.
 
 ---
 
-## The toy scenario
+## What a goal agent does
 
-The agent is handed **one customer case** and a list of **org goals**, and must
-decide — per goal — whether to **act** (draft a reply / attach a tag) or
-**abstain**. Three cases ship in [`src/domain.ts`](src/domain.ts):
+It's handed **one case** (a customer message) plus a list of **enabled goals**,
+and must decide — for each goal independently — whether to **act** or **abstain**,
+using a read-only `search` tool to resolve real IDs and a terminal
+`submit_decision` tool to finish.
 
-| case (`pnpm vanilla <case>`) | what the agent should do |
+```mermaid
+flowchart LR
+  IN([case + enabled goals]) --> M{{Gemini}}
+  M -- "calls search" --> S[search<br/>read-only lookup]
+  S -- "results / real IDs" --> M
+  M -- "calls submit_decision" --> D[submit_decision<br/>latch + validation]
+  D -- "retryable error" --> M
+  D -- "committed" --> OUT([decision:<br/>act / abstain per goal])
+```
+
+The run's real output is the **committed decision** — a side effect of the
+terminal tool — not the model's final sentence.
+
+## One run, end to end
+
+```mermaid
+sequenceDiagram
+  participant R as Runner<br/>(your loop / Mastra)
+  participant G as Gemini
+  participant T as Tools
+  R->>G: system prompt + case + goals + tool defs
+  G->>R: tool call · search("reset password", knowledge_base)
+  R->>T: runSearch(...)
+  T-->>R: [kb_reset_pw]
+  R->>G: tool result
+  G->>R: tool call · submit_decision([act → draft_reply …])
+  R->>T: sink.submit(...)
+  T-->>R: { ok: true, committed }
+  G->>R: "Drafted a KB-grounded reply." (final text)
+  R->>R: read the committed decision
+```
+
+The loop repeats until the model stops calling tools or hits the step cap (12).
+
+---
+
+## Vanilla vs Mastra — who does each job
+
+| Job | Vanilla (`01`) — you write it | Mastra (`02`) — declared |
+| --- | --- | --- |
+| Tool definitions | `tool({ parameters: <zod> })`, no `execute` | `createTool({ inputSchema: <zod>, execute })` |
+| The agent loop | a hand-written `for` loop over `generateText` | `agent.generate(...)` |
+| Tool dispatch | `runTool()` switch | Mastra routes to each tool's `execute` |
+| History threading | `messages.push(...)` assistant + `tool` turns | internal to `generate` |
+| Step cap | `MAX_STEPS = 12` guard | `{ maxSteps: 12 }` |
+| Retry on bad input | tool result with `isError: true` | `execute` returns `{ ok:false, retryable:true }` |
+| Provider swap | rewrite the loop for the new SDK | change one `model:` line |
+
+**The lesson:** Mastra owns the *orchestration* (loop, dispatch, history, cap,
+retry). It does **not** own the agent's *judgment* — you still author the schema,
+the tools' logic, and the prompt. Those live in
+[`schema.ts`](src/schema.ts) · [`tools.ts`](src/tools.ts) · [`prompt.ts`](src/prompt.ts),
+imported unchanged by both files.
+
+---
+
+## How this maps to the real Sift goal agent
+
+The workbook models the **agent core** (the boxed part). Production wraps it in a
+trigger, a remote invocation, tools that actually mutate data, and tracing:
+
+```mermaid
+flowchart TD
+  SYN([synthesis finishes]) --> TRIG[eligibility gate<br/>open action? in scope?<br/>once-per-action? turn cap 25]
+  TRIG -- eligible --> INV[HTTP POST /api/v1/responses<br/>→ siftgpt-mastra service]
+  subgraph CORE [the agent core — what this workbook models]
+    AG{{Mastra Goal Agent<br/>Gemini · maxSteps 12}}
+    TOOLS[search · search_knowledge_base<br/>· submit_goal_decision]
+    AG <--> TOOLS
+  end
+  INV --> AG
+  TOOLS --> ACT[executeGoalDecision<br/>draft reply · run macro · tag]
+  AG --> SPANS[(mastra_ai_spans<br/>+ Datadog)]
+```
+
+| Real Sift piece | File |
 | --- | --- |
-| `password` (default) | recognize a how-to question → `search` the KB → draft a grounded reply under `goal_deflect_kb` |
-| `refund` | recognize a billing/refund issue → `search` the tag catalog → **abstain** and tag it under `goal_escalate_billing` (never auto-promise a refund) |
-| `praise` | recognize positive feedback → draft a short thank-you under `goal_thank_praise` |
+| Trigger + eligibility gate | `semantic-goal-agent-trigger.ts` |
+| Remote invocation + run-input prompt | `workflow-goal-agent-client.ts` |
+| Terminal decision tool that acts | `submit-goal-decision.ts` |
+| Agent wiring, Gemini, tracing | `apps/siftgpt-mastra/src/mastra/index.ts` |
 
 ---
 
-## Setup
+## Run it end to end
 
 ```bash
 cd ~/goal-agent-workbook
-pnpm install            # or npm install
-export ANTHROPIC_API_KEY=sk-ant-...   # or: cp .env.example .env && edit
+pnpm install
+export GEMINI_API_KEY=...        # https://aistudio.google.com/apikey
+                                 # (GOOGLE_GENERATIVE_AI_API_KEY also works)
+
+pnpm vanilla                     # hand-written agent, default `password` case
+pnpm mastra                      # Mastra agent, same case
+pnpm both                        # run both back to back and compare
 ```
 
-Both files use `claude-opus-4-8`. (The real Sift agent uses **Gemini** via
-`@ai-sdk/google` — see the provider note in `02-mastra.ts`. We use Anthropic here
-so both files share a model and the diff stays clean.)
+Pick a different case to see a different path:
 
-## Run it
+| case | what the agent should do |
+| --- | --- |
+| `password` (default) | recognize a how-to question → `search` the KB → draft a grounded reply |
+| `refund` | recognize a billing issue → **abstain** and tag it (never auto-promise a refund) |
+| `praise` | recognize positive feedback → draft a short thank-you |
 
 ```bash
-pnpm vanilla            # the hand-written agent, on the `password` case
-pnpm mastra             # the Mastra agent, same case
-pnpm vanilla refund     # try the abstain-and-tag path
-pnpm mastra praise      # try the thank-you path
-pnpm both               # run both back to back and compare output
+pnpm vanilla refund
+pnpm mastra praise
 ```
 
-Watch the step-by-step log: the model narrates, calls `search` to resolve an ID,
-then calls `submit_decision`. The committed decision printed at the end is the
-agent's real output — a **side effect of the terminal tool**, not the model's
-final sentence.
+You'll see each step logged: the model narrates, calls `search`, then
+`submit_decision`; the committed decision is printed at the end.
 
 ---
 
-## The concept map
+## Files
 
-The six jobs an agent framework does for you — and where each lives in the two
-files and in the real Sift codebase.
-
-| Concept | Vanilla (`01`) — you write it | Mastra (`02`) — declared | In real Sift |
-| --- | --- | --- | --- |
-| **Tool definition** | JSON Schema, hand-derived from zod via `toAnthropicSchema` | `createTool({ inputSchema: <zod> })` — zod used directly | `createTool` from `@mastra/core/tools` |
-| **The agent loop** | the `for (step…)` loop calling `messages.create` | `agent.generate(...)` runs the loop internally | Mastra `Agent.generate/stream`, driven server-side over `POST /api/v1/responses` |
-| **Tool dispatch** | `runTool()` switch on `block.name` | Mastra routes each call to the tool's `execute` | same (Mastra) |
-| **History threading** | `messages.push()` — assistant turn, then a user turn of `tool_result`s | handled inside `generate` | same (Mastra) |
-| **Step cap** | `MAX_STEPS = 12` guard | `{ maxSteps: 12 }` | `defaultOptions: { maxSteps: 12 }` on the Agent |
-| **Structured decision** | `submit_decision` tool + zod schema | same tool + same zod schema | `submit_goal_decision` + `submitGoalDecisionSchema` |
-| **Retryable validation** | `safeParse` + `is_error: true` tool result | `execute` returns `{ ok:false, retryable:true }`; model re-reads it | `.superRefine` + `executeGoalDecision` return retryable errors |
-| **Per-run tool state (latch)** | `createDecisionSink()` rebuilt per run | same sink, closed over inside `main()` | tool rebuilt per run; `submitted` latch + action id injected via `requestContext` |
-| **Model provider** | Anthropic SDK (`@anthropic-ai/sdk`) | AI-SDK adapter (`@ai-sdk/anthropic`) | `@ai-sdk/google` Gemini, `thinkingLevel: "minimal"` |
-| **Run output** | the committed decision (tool side effect) | same | side effect of `submit_goal_decision` + a one-line audit sentence |
-| **Tracing** | `console.log` per step | `res.steps` / `res.toolCalls` | `mastra_ai_spans` table + Datadog via `@mastra/observability` |
-
-### What Mastra buys you (and what it doesn't)
-
-Mastra owns the **orchestration**: the loop, dispatch, history, step cap, and
-tool-result retry. It does **not** replace your **domain thinking** — you still
-author the schema, the tools' backing logic, the prompts, and the decision
-contract. In this workbook those live in `schema.ts`, `tools.ts`, and
-`prompt.ts`, imported unchanged by both files. That split is the point: the
-framework is loop plumbing; the agent's *judgment* is still yours to design.
-
----
-
-## File tour
-
-| File | What it teaches |
+| File | What it is |
 | --- | --- |
-| [`src/domain.ts`](src/domain.ts) | the toy world: cases, goals, KB, tags (Sift's action + goals + catalogs) |
-| [`src/schema.ts`](src/schema.ts) | ONE zod decision schema, consumed by both — plus the JSON-Schema tax the vanilla side pays |
-| [`src/tools.ts`](src/tools.ts) | tool *backing logic*: `runSearch` + the `submit_decision` sink (latch + retryable validation) |
-| [`src/prompt.ts`](src/prompt.ts) | the stable system prompt + the per-run input prompt (Sift's two-part prompt split) |
-| [`src/01-vanilla.ts`](src/01-vanilla.ts) | the whole agent as a hand-written loop — read this first |
-| [`src/02-mastra.ts`](src/02-mastra.ts) | the same agent, framework-managed — read this second, and diff it against `01` |
+| [`src/domain.ts`](src/domain.ts) | the toy world: cases, goals, KB, tags |
+| [`src/model.ts`](src/model.ts) | the shared Gemini model + key resolution (mirrors Sift) |
+| [`src/schema.ts`](src/schema.ts) | the one zod decision schema, used by both |
+| [`src/tools.ts`](src/tools.ts) | tool backing logic: `search` + the decision sink (latch + validation) |
+| [`src/prompt.ts`](src/prompt.ts) | the stable system prompt + the per-run input prompt |
+| [`src/01-vanilla.ts`](src/01-vanilla.ts) | the whole agent as a hand-written loop — read first |
+| [`src/02-mastra.ts`](src/02-mastra.ts) | the same agent, framework-managed — read second, then diff |
 
----
+## Exercises
 
-## Suggested exercises
-
-1. **Break the loop cap.** Set `MAX_STEPS = 1` in `01-vanilla.ts` and run the
-   `password` case. The model can't both `search` and `submit_decision` in one
-   step, so it never finishes. Now find the `maxSteps` in `02-mastra.ts` — same
-   failure, one line. This is why Sift caps at 12.
-2. **Force a retry.** In `tools.ts`, temporarily make `goal_escalate_billing`
-   disallow the `tag` action (`allowedActions: []`). Run `refund` and watch the
-   model receive the validation error and correct itself. That's the retryable
-   contract doing its job — in both files, with zero orchestration code from you.
-3. **Add a tool.** Add a `resolve_queue` tool (a third catalog lookup). Notice
-   you touch `tools.ts` (backing fn) + one entry in each file's tool list — and
-   nothing in the loop. The loop doesn't care how many tools exist.
-4. **Delete the latch.** Remove the `if (committed) return …` guard in
-   `createDecisionSink`. On some runs the model calls `submit_decision` twice;
-   without the latch the second call overwrites the first. This is the bug the
-   latch prevents.
-5. **Read the real thing.** Open Sift's `submit-goal-decision.ts` and
-   `workflow-goal-agent-client.ts` and map each piece back to this workbook using
-   the concept map above.
+1. **Break the cap.** Set `MAX_STEPS = 1` in `01` and run `password` — the model
+   can't both `search` and `submit_decision` in one step, so it never finishes.
+   That's why Sift caps at 12.
+2. **Force a retry.** In `tools.ts`, give `goal_escalate_billing`
+   `allowedActions: []`, run `refund`, and watch the model read the validation
+   error and correct itself — with zero orchestration code from you.
+3. **Delete the latch.** Remove the `if (committed) …` guard in
+   `createDecisionSink` and watch a double `submit_decision` overwrite the first
+   decision. That's the bug the latch prevents.
+4. **Read the real thing.** Open `submit-goal-decision.ts` and
+   `workflow-goal-agent-client.ts` with the mapping table above beside you.

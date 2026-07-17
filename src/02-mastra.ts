@@ -19,25 +19,25 @@
  * You still bring the SAME zod schema, the SAME tool backing functions, and the
  * SAME prompts. The framework only owns the orchestration.
  *
- * NOTE ON PROVIDER: the real Sift goal agent runs on Google Gemini via
- * `@ai-sdk/google` and is invoked over an HTTP `/api/v1/responses` endpoint.
- * Here we use Anthropic via `@ai-sdk/anthropic` so the two files share a model
- * and the comparison is clean. Mastra takes any AI-SDK model adapter.
+ * NOTE ON PROVIDER: this runs on Google Gemini via `@ai-sdk/google` — the same
+ * provider the real Sift goal agent uses. Notice how little of THIS file cares:
+ * only the `model:` line differs from an Anthropic setup, because Mastra takes
+ * any AI-SDK model adapter. The vanilla file, by contrast, is coupled to its
+ * provider's loop shape. The real Sift agent is invoked over an HTTP
+ * `/api/v1/responses` endpoint; here we call `.generate()` in-process.
  *
  * NOTE ON API SURFACE: Mastra's API evolves across releases. If a name here
  * doesn't match your installed version, check `@mastra/core`'s types — the
  * shape (Agent + createTool + generate) is stable; exact option names drift.
  */
 
-import { anthropic } from "@ai-sdk/anthropic"
 import { Agent } from "@mastra/core/agent"
 import { createTool } from "@mastra/core/tools"
 import { CASES, GOALS } from "./domain"
+import { google, MODEL } from "./model"
 import { buildInputPrompt, SYSTEM_PROMPT } from "./prompt"
 import { decisionInputSchema, searchInputSchema } from "./schema"
 import { createDecisionSink, runSearch } from "./tools"
-
-const MODEL = "claude-opus-4-8"
 
 async function main() {
   const caseId = process.argv[2] ?? "password"
@@ -84,11 +84,11 @@ async function main() {
   const agent = new Agent({
     name: "Goal Agent",
     instructions: SYSTEM_PROMPT,
-    model: anthropic(MODEL),
+    model: google(MODEL), // ← the ONLY provider-specific line in this file
     tools: { search: searchTool, submit_decision: submitDecisionTool },
   })
 
-  console.log(`\n=== MASTRA goal agent · case ${action.id} (${caseId}) ===\n`)
+  console.log(`\n=== MASTRA goal agent · ${MODEL} · case ${action.id} (${caseId}) ===\n`)
 
   // The loop, dispatch, history threading, step cap, and retry — all inside
   // this ONE call. maxSteps is Sift's real cap.
