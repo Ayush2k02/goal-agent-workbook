@@ -45,7 +45,7 @@ async function main() {
     (e) => {
       if (e.tool === "search") log.tool(`search(${JSON.stringify(e.input)})`)
       else if (e.ok) log.tool("submit_decision", { status: "committed" })
-      // A rejection isn't a failure: the sink refused an invalid draft and handed
+      // A rejection isn't a failure: the gate refused an invalid draft and handed
       // the model the reasons to fix on the next step — the retry loop working.
       else log.tool("submit_decision", { status: "rejected", errors: e.errors ?? [] })
     },

@@ -4,7 +4,7 @@
  * This is the "production" agent: the demo runner (02-mastra.ts) and the frozen
  * bench (03-bench.ts) both call `runMastraGoalAgent`, so the bench exercises the
  * exact same agent a user would — the only thing swapped is nothing at all: our
- * decision sink already only RECORDS the decision (no side effects), which is
+ * decision gate already only RECORDS the decision (no side effects), which is
  * precisely what the production bench "recorder" target does to `submit_goal_decision`.
  *
  * Every framework job is declarative here — tools, loop, dispatch, history
@@ -19,7 +19,7 @@ import { google, MODEL } from "./model"
 import { buildInputPrompt, SYSTEM_PROMPT } from "./prompt"
 import { decisionInputSchema, searchInputSchema } from "./schema"
 import { MastraLLMTraceExporter } from "./telemetry"
-import { createDecisionSink, runSearch, type DecisionResult } from "./tools"
+import { createDecisionGate, runSearch, type DecisionResult } from "./tools"
 
 export type ToolEvent =
   | { tool: "search"; input: unknown }
@@ -40,7 +40,7 @@ export async function runMastraGoalAgent(
 ) {
   // Per-run tool state — the latch is scoped to this run (the real system injects the
   // action id via requestContext; the closure here is the toy equivalent).
-  const sink = createDecisionSink(org)
+  const gate = createDecisionGate(org)
 
   const searchTool = createTool({
     id: "search",
@@ -56,10 +56,10 @@ export async function runMastraGoalAgent(
     id: "submit_decision",
     description: "Submit your final act/abstain decision (one block per applying goal). Call exactly once to finish.",
     inputSchema: decisionInputSchema,
-    // The same sink: latch + retryable validation. A `{ ok:false }` result is
+    // The same gate: latch + retryable validation. A `{ ok:false }` result is
     // read by the model and corrected on the next step — no extra plumbing.
     execute: async ({ context }): Promise<DecisionResult> => {
-      const result = sink.submit(context)
+      const result = gate.submit(context)
       onTool({ tool: "submit_decision", ok: result.ok, errors: result.ok ? undefined : result.errors })
       return result
     },
@@ -96,6 +96,6 @@ export async function runMastraGoalAgent(
 
   // `generateLegacy` is Mastra's path for AI SDK v4 models (our @ai-sdk/google
   // v1 provider). The v5-only `generate()`/`stream()` reject v4 models outright.
-  const res = await agent.generateLegacy(buildInputPrompt(action, org, org.goals), { maxSteps: 12 })
-  return { decision: sink.result(), auditText: res.text.trim() }
+  const res = await agent.generateLegacy(buildInputPrompt(action, org), { maxSteps: 12 })
+  return { decision: gate.result(), auditText: res.text.trim() }
 }

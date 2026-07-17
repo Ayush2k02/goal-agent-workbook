@@ -8,7 +8,7 @@
  * the real `getActionContext` produces.
  */
 
-import type { Action, Goal, Org } from "./data.store"
+import type { Action, Org } from "./data.store"
 
 export const SYSTEM_PROMPT = `You are a customer-support Goal Agent.
 
@@ -42,8 +42,8 @@ const renderActionContext = (action: Action): string => {
   ].join("\n\n")
 }
 
-export const buildInputPrompt = (action: Action, org: Org, goals: Goal[]): string => {
-  const goalBlock = goals
+export const buildInputPrompt = (action: Action, org: Org): string => {
+  const goalBlock = org.goals
     .map(
       (g) =>
         `- goalId: ${g.id}\n  name: ${g.name}\n  outcome: ${g.outcome}\n  allowedActions: ${g.allowedActions.join(", ")}\n  reviewPolicy: ${g.reviewPolicy}\n  instructions: ${g.instructions}`,

@@ -20,7 +20,7 @@ import { evaluateEligibility } from "./eligibility"
 import { google, MODEL } from "./model"
 import { buildInputPrompt, SYSTEM_PROMPT } from "./prompt"
 import { decisionInputSchema, searchInputSchema } from "./schema"
-import { createDecisionSink, runSearch } from "./tools"
+import { createDecisionGate, runSearch } from "./tools"
 import { log } from "./log"
 import { registerHandWiredTracing } from "./telemetry"
 
@@ -60,12 +60,12 @@ async function main() {
     return
   }
 
-  const sink = createDecisionSink(org) // per-run tool state — write-once latch: the first valid submit_decision commits, later ones are no-ops
-  const messages: CoreMessage[] = [{ role: "user", content: buildInputPrompt(action, org, org.goals) }]
+  const gate = createDecisionGate(org) // per-run tool state — write-once latch: the first valid submit_decision commits, later ones are no-ops
+  const messages: CoreMessage[] = [{ role: "user", content: buildInputPrompt(action, org) }]
 
   // --- The agent loop. This for-loop IS the agent. -------------------------
   for (let step = 1; step <= MAX_STEPS; step++) {
-    const s = log.step(step)
+    const stepLog = log.step(step)
 
     // The ➡️ input / ⬅️ output of this turn is captured as an OpenTelemetry span:
     // `experimental_telemetry` tells the AI SDK to record the prompt, response,
@@ -80,7 +80,7 @@ async function main() {
       experimental_telemetry: { isEnabled: true, functionId: "vanilla.step", metadata: { step, caseId } },
     })
 
-    if (res.text.trim()) s.say(res.text.trim())
+    if (res.text.trim()) stepLog.say(res.text.trim())
     if (res.finishReason !== "tool-calls" || res.toolCalls.length === 0) break
 
     // Preserve the assistant turn (its tool calls) before answering it.
@@ -88,12 +88,12 @@ async function main() {
 
     // Run every tool the model called, collect results.
     const toolResults = res.toolCalls.map((call) => {
-      const { output, isError, errors } = runTool(org, call.toolName, call.args, sink)
+      const { output, isError, errors } = runTool(org, call.toolName, call.args, gate)
       const { head, lines } = describeCall(call.toolName, call.args)
-      s.tool(head, lines)
-      // A rejection isn't a failure: the sink refused an invalid draft and handed
+      stepLog.tool(head, lines)
+      // A rejection isn't a failure: the gate refused an invalid draft and handed
       // the model the reasons to fix on the next step — the retry loop working.
-      if (isError) s.rejected(errors ?? [])
+      if (isError) stepLog.rejected(errors ?? [])
       return {
         type: "tool-result" as const,
         toolCallId: call.toolCallId,
@@ -106,7 +106,7 @@ async function main() {
     messages.push({ role: "tool", content: toolResults })
   }
 
-  log.committed(sink.result())
+  log.committed(gate.result())
 }
 
 /**
@@ -146,7 +146,7 @@ function runTool(
   org: (typeof ORGS)[string],
   name: string,
   input: unknown,
-  sink: ReturnType<typeof createDecisionSink>,
+  gate: ReturnType<typeof createDecisionGate>,
 ): { output: unknown; isError: boolean; errors?: string[] } {
   // Zod issues → readable "path: message" lines the model (and the log) can use.
   const fmtZod = (issues: { path: (string | number)[]; message: string }[]) =>
@@ -160,7 +160,7 @@ function runTool(
   if (name === "submit_decision") {
     const parsed = decisionInputSchema.safeParse(input)
     if (!parsed.success) return { output: { retryable: true, errors: parsed.error.issues }, isError: true, errors: fmtZod(parsed.error.issues) }
-    const result = sink.submit(parsed.data)
+    const result = gate.submit(parsed.data)
     return { output: result, isError: !result.ok, errors: result.ok ? undefined : result.errors }
   }
   return { output: { error: `unknown tool ${name}` }, isError: true, errors: [`unknown tool ${name}`] }
