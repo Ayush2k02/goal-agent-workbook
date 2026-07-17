@@ -1,0 +1,25 @@
+{
+  "name": "goal-agent-workbook",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Learn how a goal agent works — with the Mastra framework, and hand-written without it.",
+  "scripts": {
+    "vanilla": "tsx src/01-vanilla.ts",
+    "mastra": "tsx src/02-mastra.ts",
+    "both": "tsx src/01-vanilla.ts && tsx src/02-mastra.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^1.2.12",
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@mastra/core": "^0.20.0",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
