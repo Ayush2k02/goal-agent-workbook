@@ -7,7 +7,7 @@
  * model calls — the agent is never invoked, exactly like production); otherwise
  * run the SAME production agent (agent.ts), capture the recorded decision, and
  * score it against the pinned groundTruth with deterministic scorers (the toy
- * analog of Sift's core/scorers/quality.ts):
+ * analog of the production core/scorers/quality.ts):
  *
  *   - decision-match   → act / abstain / skipped matches (+ skip reason)
  *   - actions-match    → the set of action types matches

@@ -1,11 +1,11 @@
 /**
  * prompt.ts — the two halves of the goal agent's instructions.
  *
- * Sift splits its prompt like this: a stable SYSTEM_PROMPT (policy, set once on
+ * The production agent splits its prompt like this: a stable SYSTEM_PROMPT (policy, set once on
  * the agent) and a per-run INPUT prompt (this case + enabled goals + the
  * decision contract). The per-run input renders the four ACTION-CONTEXT blocks
  * (known facts / current thread / internal notes / customer timeline) that
- * Sift's `getActionContext` produces.
+ * the real `getActionContext` produces.
  */
 
 import type { Action, Goal, Org } from "./data.store"

@@ -1,6 +1,6 @@
 # Goal Agent Workbook
 
-A small, runnable workbook for understanding Sift's autonomous **goal agent** —
+A small, runnable workbook for understanding a production-style autonomous **goal agent** —
 the thing that, after synthesis, looks at one customer case and decides whether
 to **draft a reply**, **tag/close it**, or **abstain**, based on the goals an org
 has configured.
@@ -14,14 +14,14 @@ You get the same agent built two ways, plus a frozen bench to test it:
 All the data — orgs, cases, active cases, and the frozen-bench expectations —
 lives in one file, **[`src/data.store.ts`](src/data.store.ts)**; every other file
 imports from it. Everything runs on **Google Gemini** (`@ai-sdk/google`,
-`gemini-2.5-flash`) — the same provider real Sift uses — and shares one decision
+`gemini-2.5-flash`) — the same provider the production agent uses — and shares one decision
 schema, one set of tools, and one prompt. Only orchestration differs — and each
 LLM turn is rendered from **real OpenTelemetry traces** wired the same two ways
 (see [Observability](#observability--the-same-seam-one-more-time)).
 
 > Simplified **analog** grounded in the real repo (action-type enum, decision
 > schema, goal config, the frozen-bench harness). Cases are **synthetic** — no
-> customer data. Callouts marked **"real Sift"** point at production files.
+> customer data. Callouts marked **"real system"** point at production files.
 
 ---
 
@@ -58,7 +58,7 @@ terminal tool — not the model's final sentence.
 ### The eligibility gate (skip before invoking)
 
 Before the model is ever called, a gate decides whether the agent should run at
-all — mirroring Sift's trigger (`evaluateGoalAgentEligibility` in
+all — mirroring the production trigger (`evaluateGoalAgentEligibility` in
 [`src/eligibility.ts`](src/eligibility.ts)). A skipped case costs **zero** model
 calls. We implement 7 of the real skip reasons:
 
@@ -135,10 +135,10 @@ and the model is never called (so the bench only makes 3 model calls). The runne
 exits nonzero if any case fails, so it works as a regression gate. The model is
 non-deterministic, so treat a *consistent* failure as a real regression.
 
-**This mirrors Sift's real frozen bench 1:1:** it runs the *production* agent and
+**This mirrors the production frozen bench 1:1:** it runs the *production* agent and
 swaps only `submit_goal_decision`'s executor for a **recorder** that captures the
 decision instead of drafting/tagging. Our decision sink already only records — so
-the demo and the bench run the identical agent. (Real Sift also freezes redacted
+the demo and the bench run the identical agent. (The production system also freezes redacted
 snapshots of real prod actions with a sha256 manifest, and adds LLM-judge scorers
 that grade reply *wording* against a held-out human reply — we keep it structural
 and runnable.)
@@ -190,7 +190,7 @@ Two channels tell the story, split by what they are:
 
 Both are production-honest exits, not toys: set `OTEL_EXPORTER_OTLP_ENDPOINT` and
 the vanilla path also batches the **same** spans to any OTLP backend
-(Langfuse / Jaeger / Tempo) with zero code change — mirroring how real Sift ships
+(Langfuse / Jaeger / Tempo) with zero code change — mirroring how the production system ships
 `mastra_ai_spans` to Datadog. The **bench leaves tracing off** (`trace: false`),
 so it stays silent, deterministic, and pays nothing for observability.
 
@@ -200,12 +200,12 @@ traces rendered identically from their two very different wirings.
 
 ---
 
-## How it maps to real Sift
+## How it maps to the real system
 
 ```mermaid
 flowchart TD
   SYN([synthesis finishes]) --> TRIG[eligibility gate<br/>open action? in scope? turn cap 25]
-  TRIG -- eligible --> INV[HTTP POST /api/v1/responses → siftgpt-mastra]
+  TRIG -- eligible --> INV[HTTP POST /api/v1/responses → agent-app]
   subgraph CORE [what this workbook models]
     AG{{Mastra Goal Agent · Gemini · maxSteps 12}}
     TOOLS[search · submit_goal_decision]
@@ -216,7 +216,7 @@ flowchart TD
   AG --> SPANS[(mastra_ai_spans + Datadog)]
 ```
 
-| Real Sift piece | File |
+| Real system piece | File |
 | --- | --- |
 | Eligibility gate (`evaluateGoalAgentEligibility`, skip reasons) | `packages/core/action-manager/src/workflow/semantic-goal-agent-trigger.ts` |
 | Action-type enum (`GOAL_ALLOWED_ACTION_TYPES`) | `packages/data/timescale-db/src/types/workflow-action-registry.ts` |
@@ -224,8 +224,8 @@ flowchart TD
 | Decision schema + terminal tool | `packages/core/agents/src/agents/tools/submit-goal-decision.ts` |
 | Decision executor (drafts/tags/closes) | `packages/core/action-manager/src/workflow/execute-goal-decision.ts` |
 | The 4 ACTION-CONTEXT blocks | `packages/core/action-manager/src/workflow/get-action-context.ts` |
-| **The frozen bench** | `apps/siftgpt-mastra/src/evals/goal-agent/bench/` |
-| Per-org goal defs (draft vs tag) | `apps/siftgpt-mastra/src/evals/goal-agent/suites/replay/definitions.ts` |
+| **The frozen bench** | `apps/agent-app/src/evals/goal-agent/bench/` |
+| Per-org goal defs (draft vs tag) | `apps/agent-app/src/evals/goal-agent/suites/replay/definitions.ts` |
 
 ---
 
@@ -235,8 +235,8 @@ flowchart TD
 | --- | --- |
 | [`src/data.store.ts`](src/data.store.ts) | **all data**: orgs, cases, active cases, and frozen-bench expectations |
 | [`src/eligibility.ts`](src/eligibility.ts) | the pre-invocation skip gate (`action_closed`, `already_ran_for_action`) |
-| [`src/model.ts`](src/model.ts) | the shared Gemini model + key resolution (mirrors Sift) |
-| [`src/schema.ts`](src/schema.ts) | the one decision schema (Sift's `submitGoalDecisionSchema` shape) |
+| [`src/model.ts`](src/model.ts) | the shared Gemini model + key resolution (mirrors production) |
+| [`src/schema.ts`](src/schema.ts) | the one decision schema (the production `submitGoalDecisionSchema` shape) |
 | [`src/tools.ts`](src/tools.ts) | `search` + the decision sink (latch, validation, records-not-executes) |
 | [`src/prompt.ts`](src/prompt.ts) | system prompt + the 4 ACTION-CONTEXT blocks |
 | [`src/agent.ts`](src/agent.ts) | the shared Mastra agent (used by the demo AND the bench) |
@@ -245,7 +245,7 @@ flowchart TD
 | [`src/03-bench.ts`](src/03-bench.ts) | the frozen bench: scored runner |
 | [`src/telemetry.ts`](src/telemetry.ts) | OpenTelemetry / Mastra AI tracing — renders each LLM turn as a span (the observability seam) |
 | [`src/log.ts`](src/log.ts) | structured logging on Pino — the run banner, tool calls, rejections, final decision |
-| [`demo-walkthrough.html`](demo-walkthrough.html) | a printable Sift-style walkthrough with two real, color-coded trace runs |
+| [`demo-walkthrough.html`](demo-walkthrough.html) | a printable, product-styled walkthrough with two real, color-coded trace runs |
 
 ## Exercises
 

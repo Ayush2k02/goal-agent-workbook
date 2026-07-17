@@ -4,7 +4,7 @@
  * Run:  pnpm vanilla L1   (cases: L1 L2 L3 · N1 · X1–X4 — see data.store.ts)
  *
  * We talk to Gemini through the Vercel AI SDK (`generateText` + `@ai-sdk/google`)
- * — the same model layer Sift's real agent sits on — but we hand-write the
+ * — the same model layer the real agent sits on — but we hand-write the
  * agentic loop. Read top to bottom and you'll see every job a framework does for
  * you, because here you do them: tool defs, the loop, dispatch, history
  * threading, the step cap, and surfacing validation errors for retry.
@@ -24,7 +24,7 @@ import { createDecisionSink, runSearch } from "./tools"
 import { log } from "./log"
 import { registerHandWiredTracing } from "./telemetry"
 
-const MAX_STEPS = 12 // Sift's real cap. Bounds tool round-trips.
+const MAX_STEPS = 12 // the real cap. Bounds tool round-trips.
 
 const TOOLS = {
   search: tool({

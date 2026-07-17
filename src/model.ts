@@ -1,7 +1,7 @@
 /**
  * model.ts — the Gemini model, shared by both implementations.
  *
- * This mirrors how the real Sift goal agent resolves its model: the same
+ * This mirrors how the real goal agent resolves its model: the same
  * `@ai-sdk/google` provider, and the same key fallback
  * (`GEMINI_API_KEY ?? GOOGLE_GENERATIVE_AI_API_KEY`) with a hard throw if
  * neither is set. Both 01-vanilla.ts and 02-mastra.ts import `google` + `MODEL`

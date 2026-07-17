@@ -2,14 +2,14 @@
  * tools.ts — the tool *backing logic*, shared by both implementations.
  *
  * Provider-agnostic plain functions (no Anthropic/Gemini/Mastra imports). Two
- * tools, mirroring Sift's real goal agent:
- *   - runSearch          → read-only catalog lookup (Sift's `search`)
+ * tools, mirroring the real goal agent:
+ *   - runSearch          → read-only catalog lookup (the real `search`)
  *   - createDecisionSink → the terminal `submit_decision` tool, which does what
- *     Sift's `submit_goal_decision` + `executeGoalDecision` do BEFORE any side
+ *     the real `submit_goal_decision` + `executeGoalDecision` do BEFORE any side
  *     effect: validate the decision and return RETRYABLE errors the model can
  *     fix, with a once-per-run LATCH so a duplicate submit is a no-op.
  *
- * In real Sift, on success this would draft the reply / apply the tag / close
+ * In production, on success this would draft the reply / apply the tag / close
  * the action. Here (like the bench's "recorder" target) it only RECORDS the
  * decision — no side effects — so we can inspect and score it.
  */
@@ -35,7 +35,7 @@ export const runSearch = (org: Org, input: { kind: "tag" | "close_reason"; query
 
 // ---------------------------------------------------------------------------
 // Tool 2: submit_decision — the terminal tool. A fresh sink is built per run so
-// the latch is naturally run-scoped (Sift rebuilds its tools per run too).
+// the latch is naturally run-scoped (the real system rebuilds its tools per run too).
 // ---------------------------------------------------------------------------
 export type DecisionResult =
   | { ok: true; committed: DecisionInput }

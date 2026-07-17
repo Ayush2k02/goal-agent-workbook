@@ -1,5 +1,5 @@
 /**
- * schema.ts — ONE decision schema, shaped like Sift's real
+ * schema.ts — ONE decision schema, shaped like the production
  * `submitGoalDecisionSchema` (packages/core/agents/src/agents/tools/submit-goal-decision.ts).
  *
  * Both the vanilla loop and the Mastra agent pass these zod schemas straight to

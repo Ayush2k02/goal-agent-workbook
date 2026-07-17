@@ -5,7 +5,7 @@
  * bench (03-bench.ts) both call `runMastraGoalAgent`, so the bench exercises the
  * exact same agent a user would — the only thing swapped is nothing at all: our
  * decision sink already only RECORDS the decision (no side effects), which is
- * precisely what Sift's bench "recorder" target does to `submit_goal_decision`.
+ * precisely what the production bench "recorder" target does to `submit_goal_decision`.
  *
  * Every framework job is declarative here — tools, loop, dispatch, history
  * threading, step cap, retry. Compare with 01-vanilla.ts, which hand-writes them.
@@ -38,7 +38,7 @@ export async function runMastraGoalAgent(
   onTool: (e: ToolEvent) => void = () => {},
   opts: { trace?: boolean } = {},
 ) {
-  // Per-run tool state — the latch is scoped to this run (Sift injects the
+  // Per-run tool state — the latch is scoped to this run (the real system injects the
   // action id via requestContext; the closure here is the toy equivalent).
   const sink = createDecisionSink(org)
 

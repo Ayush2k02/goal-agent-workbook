@@ -36,10 +36,10 @@ export const GOAL_ALLOWED_ACTION_TYPES = [
 ] as const
 export type ActionType = (typeof GOAL_ALLOWED_ACTION_TYPES)[number]
 
-/** The two reply-producing actions. Sift enforces AT MOST ONE per submission. */
+/** The two reply-producing actions. The real system enforces AT MOST ONE per submission. */
 export const REPLY_PRODUCING: ActionType[] = ["DRAFT_REPLY", "RUN_MACRO"]
 
-export type SiftTag = { id: string; label: string }
+export type Tag = { id: string; label: string }
 export type CloseReason = { id: string; label: string }
 export type ReviewPolicy = "approval_required" | "auto_send"
 
@@ -56,7 +56,7 @@ export type Org = {
   key: string
   id: string
   displayName: string
-  tags: SiftTag[]
+  tags: Tag[]
   closeReasons: CloseReason[]
   goals: Goal[]
   /** Internal/demo orgs never invoke the goal agent (internal_org gate). */
@@ -85,7 +85,7 @@ export type Action = {
 }
 
 /**
- * The complete set of skip reasons, matching Sift's GoalAgentIneligibleReason.
+ * The complete set of skip reasons, matching the real GoalAgentIneligibleReason.
  * We implement 7; `no_matching_goals` is listed for completeness but not modeled
  * — it needs saved-search SCOPE resolution, which this workbook deliberately omits.
  */
@@ -153,7 +153,7 @@ export const LYFT: Org = {
   ],
 }
 
-// Newco — installed Sift but configured NO goals. Demonstrates no_enabled_goals.
+// Newco — installed the product but configured NO goals. Demonstrates no_enabled_goals.
 export const NEWCO: Org = {
   key: "newco",
   id: "org_newco_demo",

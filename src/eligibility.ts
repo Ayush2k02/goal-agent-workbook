@@ -1,7 +1,7 @@
 /**
  * eligibility.ts — the pre-invocation gate.
  *
- * Before the goal agent is invoked at all, Sift's trigger decides whether it
+ * Before the goal agent is invoked at all, the production trigger decides whether it
  * SHOULD run (semantic-goal-agent-trigger.ts → evaluateGoalAgentEligibility).
  * If not, the model is never called — no tokens, no decision.
  *
@@ -11,7 +11,7 @@
 
 import type { Action, IneligibleReason, Org } from "./data.store"
 
-/** Runaway backstop — real Sift's GOAL_AGENT_HARD_TURN_CAP. */
+/** Runaway backstop — the real GOAL_AGENT_HARD_TURN_CAP. */
 export const HARD_TURN_CAP = 25
 
 export type Eligibility = { eligible: true } | { eligible: false; reason: IneligibleReason }
