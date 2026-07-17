@@ -23,20 +23,17 @@ and one prompt. Only orchestration differs.
 
 ---
 
-## Three orgs, different behaviors
+## Two orgs
 
-A goal agent does whatever the org's **enabled goals** tell it to. Same agent,
-different config → different behavior:
+A goal agent does whatever the org's **enabled goals** tell it to:
 
 | Org | Goals | What it does |
 | --- | --- | --- |
-| **Acme Cloud** (support) | `DRAFT_REPLY` goals | answers how-to questions, deflects billing complaints (no refund promises) |
-| **Nimbus** (community) | `ADD_TAG` / `CLOSE_ACTION_WITH_REASON` goals | tags & closes spam, tags bug reports — **never** drafts a reply |
-| **Lyft** (mirrors the redacted eval fixtures) | draft/intake + tag-close goals | deflects public complaints to DM, runs no-refund charge intake, tags & closes noise |
+| **Lyft** (mirrors the redacted eval fixtures) | deflect-to-DM + charge-intake (draft) + tag-close (auto) | drafts a DM deflect / no-refund intake for complaints, tags & closes noise, abstains when nothing matches |
+| **Newco** | **none configured** | nothing — every case is skipped with `no_enabled_goals` |
 
-The walkthrough: a customer has an inquiry → if the org has a matching **draft**
-goal, the agent drafts a reply; the same message on a tag/triage org gets
-**tagged** or **abstained**. Behavior follows configuration.
+Same agent, different config → different behavior. Lyft carries both archetypes
+(draft *and* tag/close); Newco has no goals, so the agent is never invoked there.
 
 ```mermaid
 flowchart LR
@@ -59,14 +56,27 @@ terminal tool — not the model's final sentence.
 ### The eligibility gate (skip before invoking)
 
 Before the model is ever called, a gate decides whether the agent should run at
-all — mirroring Sift's trigger (`evaluateGoalAgentEligibility`). We model two of
-the real skip reasons: **`action_closed`** (terminal status) and
-**`already_ran_for_action`** (once-per-action). A skipped case costs **zero**
-model calls.
+all — mirroring Sift's trigger (`evaluateGoalAgentEligibility` in
+[`src/eligibility.ts`](src/eligibility.ts)). A skipped case costs **zero** model
+calls. We implement 7 of the real skip reasons:
+
+| reason | fires when | demo case |
+| --- | --- | --- |
+| `action_not_found` | the action/org doesn't exist | (defensive) |
+| `action_closed` | status is terminal (CLOSED) | `X1` |
+| `hidden_moderated` | hidden by moderation | `X4` |
+| `internal_org` | org is internal/demo | (flag on `Org`) |
+| `no_enabled_goals` | org has no goals | `N1` (Newco) |
+| `already_ran_for_action` | agent already decided here (once-per-action) | `X2` |
+| `turn_cap_reached` | `priorRunCount ≥ 25` (runaway backstop) | `X3` |
+
+The 8th real reason, `no_matching_goals`, needs saved-search **scope** resolution
+that this workbook deliberately omits — it's in the type union, not implemented.
 
 ```bash
-pnpm mastra X1     # CLOSED action    → ⏭ skipped (action_closed)
-pnpm vanilla X2    # already decided  → ⏭ skipped (already_ran_for_action)
+pnpm mastra X1     # CLOSED action        → ⏭ skipped (action_closed)
+pnpm mastra N1     # org has no goals     → ⏭ skipped (no_enabled_goals)
+pnpm vanilla X3    # 25th re-fire         → ⏭ skipped (turn_cap_reached)
 ```
 
 ---
@@ -80,17 +90,14 @@ pnpm install
 #   GEMINI_API_KEY=your-key      ← https://aistudio.google.com/apikey
 ```
 
-**Cases:** `A1 A2 A3` (Acme) · `B1 B2 B3` (Nimbus) · `L1 L2` (Lyft) · `X1 X2` (skip demos).
+**Cases:** `L1 L2 L3` (Lyft) · `N1` (Newco, no goals) · `X1–X4` (skip demos).
 
 ```bash
-pnpm mastra A1      # Acme: how-to question  → drafts a reply
-pnpm mastra A2      # Acme: refund demand    → drafts empathy, NO refund promise
-pnpm vanilla B1     # Nimbus: stock spam     → tags Irrelevant + closes
-pnpm mastra B2      # Nimbus: bug report     → tags Bug
-pnpm mastra B3      # Nimbus: how-to question → abstains (no reply goal here)
 pnpm mastra L1      # Lyft: public charge complaint → intake draft, NO refund promise
-pnpm mastra L2      # Lyft: stock spam       → tags Irrelevant + closes
-pnpm mastra X1      # Lyft: CLOSED action    → ⏭ skipped, agent not invoked
+pnpm mastra L2      # Lyft: stock spam             → tags Irrelevant + closes
+pnpm mastra L3      # Lyft: how-to question        → abstains (no matching goal)
+pnpm mastra N1      # Newco: no goals configured   → ⏭ skipped (no_enabled_goals)
+pnpm vanilla X1     # Lyft: CLOSED action          → ⏭ skipped (action_closed)
 ```
 
 `pnpm vanilla <case>` and `pnpm mastra <case>` run the same case two ways.
@@ -119,12 +126,12 @@ flowchart LR
   V -- no --> B([exit 1 · regression])
 ```
 
-Each of the 10 cases pins an expected `decision` (`act` / `abstain` / `skipped`)
+Each of the 8 cases pins an expected `decision` (`act` / `abstain` / `skipped`)
 + set of **action types** + safety **assertions** (`english-reply`,
-`no-fabricated-ids`, `no-refund-promise`). The two skip cases assert the gate
-fires and the model is never called. The runner exits nonzero if any case fails,
-so it works as a regression gate. The model is non-deterministic, so treat a
-*consistent* failure as a real regression.
+`no-fabricated-ids`, `no-refund-promise`). The 5 skip cases assert the gate fires
+and the model is never called (so the bench only makes 3 model calls). The runner
+exits nonzero if any case fails, so it works as a regression gate. The model is
+non-deterministic, so treat a *consistent* failure as a real regression.
 
 **This mirrors Sift's real frozen bench 1:1:** it runs the *production* agent and
 swaps only `submit_goal_decision`'s executor for a **recorder** that captures the
@@ -198,13 +205,13 @@ flowchart TD
 
 ## Exercises
 
-1. **Watch config change behavior.** Run `B3` (how-to on Nimbus → abstain), then
-   add a `DRAFT_REPLY` goal to Nimbus in `data.store.ts` and re-run — it now drafts.
-2. **Break a bench case.** Delete the `no-refund-promise` guard's intent by
-   editing Acme's `goal_deflect_billing` instructions to allow refunds, run
-   `pnpm bench`, and watch `A2` go red.
+1. **Watch config gate the agent.** Run `N1` (Newco → skipped, no model call),
+   then add a goal to Newco in `data.store.ts` and re-run — it now invokes.
+2. **Break a bench case.** Edit Lyft's `goal_charge_intake` instructions to allow
+   promising refunds, run `pnpm bench`, and watch `L1` go red on `no-refund-promise`.
 3. **Force a retry.** Give a goal `allowedActions: []`, run its case, and watch
    the model read the validation error and correct itself — zero orchestration
    code from you.
-4. **Read the real thing.** Open `submit-goal-decision.ts` and the bench
-   `README.md` with the mapping table above beside you.
+4. **Read the real thing.** Open `submit-goal-decision.ts`,
+   `semantic-goal-agent-trigger.ts`, and the bench `README.md` with the mapping
+   table above beside you.

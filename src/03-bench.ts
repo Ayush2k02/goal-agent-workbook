@@ -77,7 +77,7 @@ async function runCase(caseId: string): Promise<Outcome> {
   const action = CASES[caseId]
   const org = ORGS[action.orgKey]
   // Eligibility gate first — a skip never invokes the model.
-  const elig = evaluateEligibility(action)
+  const elig = evaluateEligibility(action, org)
   if (!elig.eligible) return { decision: "skipped", skipReason: elig.reason, committed: null }
   const { decision } = await runMastraGoalAgent(org, action)
   return { decision: decision?.decision ?? "abstain", committed: decision }

@@ -1,7 +1,7 @@
 /**
  * 01-vanilla.ts — the goal agent with NO agent framework, on Gemini.
  *
- * Run:  pnpm vanilla A1   (cases: A1 A2 A3 · B1 B2 B3 — see domain.ts)
+ * Run:  pnpm vanilla L1   (cases: L1 L2 L3 · N1 · X1–X4 — see data.store.ts)
  *
  * We talk to Gemini through the Vercel AI SDK (`generateText` + `@ai-sdk/google`)
  * — the same model layer Sift's real agent sits on — but we hand-write the
@@ -36,7 +36,7 @@ const TOOLS = {
 }
 
 async function main() {
-  const caseId = process.argv[2] ?? "A1"
+  const caseId = process.argv[2] ?? "L1"
   const action = CASES[caseId]
   if (!action) {
     console.error(`Unknown case "${caseId}". Try: ${Object.keys(CASES).join(", ")}`)
@@ -47,7 +47,7 @@ async function main() {
   console.log(`\n=== VANILLA goal agent · ${MODEL} · ${org.displayName} · case ${action.id} (${caseId}) ===\n`)
 
   // Pre-invocation gate: if the action isn't eligible, the agent is never called.
-  const elig = evaluateEligibility(action)
+  const elig = evaluateEligibility(action, org)
   if (!elig.eligible) {
     console.log(`  ⏭️  skipped — ${elig.reason} (goal agent not invoked)`)
     return
