@@ -219,9 +219,6 @@ export const CASES: Record<string, Action> = {
   },
 }
 
-/** The cases that actually invoke the agent (eligible: open, not skipped). */
-export const ACTIVE_CASES: string[] = ["L1", "L2", "L3"]
-
 // ===========================================================================
 // FROZEN BENCH — {frozen case → expected decision}. Skip cases assert the gate
 // fires and cost ZERO model calls.
@@ -238,8 +235,8 @@ export const BENCH: BenchCase[] = [
   { caseId: "X4", groundTruth: { decision: "skipped", skipReason: "hidden_moderated", actions: [], assertions: [] } },
 ]
 
-// Sanity: every bench/active case references a real case + org.
-for (const id of [...ACTIVE_CASES, ...BENCH.map((b) => b.caseId)]) {
+// Sanity: every bench case references a real case + org.
+for (const id of BENCH.map((b) => b.caseId)) {
   const action = CASES[id]
   if (!action) throw new Error(`data.store: unknown case ${id}`)
   if (!ORGS[action.orgKey]) throw new Error(`data.store: case ${id} references unknown org ${action.orgKey}`)

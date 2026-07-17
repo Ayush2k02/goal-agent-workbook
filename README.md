@@ -13,9 +13,11 @@ You get the same agent built two ways, plus a frozen bench to test it:
 
 All the data — orgs, cases, active cases, and the frozen-bench expectations —
 lives in one file, **[`src/data.store.ts`](src/data.store.ts)**; every other file
-imports from it. Everything runs on **Google Gemini** (`@ai-sdk/google`) — the
-same provider real Sift uses — and shares one decision schema, one set of tools,
-and one prompt. Only orchestration differs.
+imports from it. Everything runs on **Google Gemini** (`@ai-sdk/google`,
+`gemini-2.5-flash`) — the same provider real Sift uses — and shares one decision
+schema, one set of tools, and one prompt. Only orchestration differs — and each
+LLM turn is rendered from **real OpenTelemetry traces** wired the same two ways
+(see [Observability](#observability--the-same-seam-one-more-time)).
 
 > Simplified **analog** grounded in the real repo (action-type enum, decision
 > schema, goal config, the frozen-bench harness). Cases are **synthetic** — no
@@ -153,9 +155,48 @@ and runnable.)
 | History threading | `messages.push(...)` | internal to `generate` |
 | Step cap | `MAX_STEPS = 12` | `{ maxSteps: 12 }` |
 | Retry on bad input | tool result with `isError: true` | `execute` returns `{ ok:false, retryable:true }` |
+| Turn tracing | `registerHandWiredTracing()` — stand up an OTel provider by hand, flag every `generateText` with `experimental_telemetry` | `new Mastra({ observability: … })` — declare an exporter, framework wires it |
 
 Mastra owns the *orchestration*; you still own the *judgment* — schema, tool
 logic, prompt (shared, in `schema.ts` / `tools.ts` / `prompt.ts`).
+
+---
+
+## Observability — the same seam, one more time
+
+An LLM call is naturally a **span**: it has a start and end (latency), an input
+(the prompt), an output (text + tool calls), and metadata (model, tokens, finish
+reason). So the workbook stops *faking* the `➡️ input / ⬅️ output` view with
+`console.log` and reads it off **real telemetry** instead — and that telemetry is
+wired the same two ways the agent is.
+
+Two channels tell the story, split by what they are:
+
+- **The LLM turn is a trace span** — [`src/telemetry.ts`](src/telemetry.ts).
+  One `PrettyLLMSpanExporter` renders the `⟪trace⟫` block, so the terminal looks
+  identical no matter who produced the span.
+  - **Vanilla** calls `registerHandWiredTracing()` to stand up an OpenTelemetry
+    `NodeTracerProvider` itself, then tags each `generateText` with
+    `experimental_telemetry` — *you* doing the framework's plumbing.
+  - **Mastra** hands the same idea to `new Mastra({ observability: … })` and gets
+    typed AI spans (a whole `agent_run → llm_generation + tool_call` tree) for
+    free — the framework owns the wiring.
+- **Everything around the turn is structured logging** — [`src/log.ts`](src/log.ts),
+  on **Pino** (the de-facto Node/TS production logger). The run banner, tool
+  calls, rejections, and the final decision are `log.*` records with real
+  queryable fields (`{ decision }`, `{ errors }`, `{ step }`) — not baked into
+  message strings. Paired with `pino-pretty` here; in production you'd drop the
+  pretty stream and emit raw JSON to Datadog / Loki / CloudWatch.
+
+Both are production-honest exits, not toys: set `OTEL_EXPORTER_OTLP_ENDPOINT` and
+the vanilla path also batches the **same** spans to any OTLP backend
+(Langfuse / Jaeger / Tempo) with zero code change — mirroring how real Sift ships
+`mastra_ai_spans` to Datadog. The **bench leaves tracing off** (`trace: false`),
+so it stays silent, deterministic, and pays nothing for observability.
+
+[`demo-walkthrough.html`](demo-walkthrough.html) captures two real, color-coded
+trace runs side by side — open it in a browser to see the vanilla and Mastra
+traces rendered identically from their two very different wirings.
 
 ---
 
@@ -202,6 +243,9 @@ flowchart TD
 | [`src/01-vanilla.ts`](src/01-vanilla.ts) | the agent as a hand-written loop — read first |
 | [`src/02-mastra.ts`](src/02-mastra.ts) | run one case on the framework agent |
 | [`src/03-bench.ts`](src/03-bench.ts) | the frozen bench: scored runner |
+| [`src/telemetry.ts`](src/telemetry.ts) | OpenTelemetry / Mastra AI tracing — renders each LLM turn as a span (the observability seam) |
+| [`src/log.ts`](src/log.ts) | structured logging on Pino — the run banner, tool calls, rejections, final decision |
+| [`demo-walkthrough.html`](demo-walkthrough.html) | a printable Sift-style walkthrough with two real, color-coded trace runs |
 
 ## Exercises
 

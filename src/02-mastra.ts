@@ -9,9 +9,11 @@
  * Notice this file and the bench (03) share the exact same agent.
  */
 
+import "./telemetry" // side-effect: register the OTel tracer BEFORE any model call
 import { runMastraGoalAgent } from "./agent"
 import { CASES, ORGS } from "./data.store"
 import { evaluateEligibility } from "./eligibility"
+import { log } from "./log"
 import { MODEL } from "./model"
 
 async function main() {
@@ -23,23 +25,35 @@ async function main() {
   }
   const org = ORGS[action.orgKey]
 
-  console.log(`\n=== MASTRA goal agent · ${MODEL} · ${org.displayName} · case ${action.id} (${caseId}) ===\n`)
+  log.banner(`MASTRA goal agent · ${MODEL} · ${org.displayName} · case ${action.id} (${caseId})`)
 
   // Pre-invocation gate: if the action isn't eligible, the agent is never called.
   const elig = evaluateEligibility(action, org)
   if (!elig.eligible) {
-    console.log(`  ⏭️  skipped — ${elig.reason} (goal agent not invoked)`)
+    log.skip(elig.reason)
     return
   }
 
-  const { decision, auditText } = await runMastraGoalAgent(org, action, (e) => {
-    if (e.tool === "search") console.log(`  🔧 search(${JSON.stringify(e.input)})`)
-    else console.log(`  🔧 submit_decision → ${e.ok ? "committed" : "⚠️ retryable error"}`)
-  })
+  // The ➡️ input / ⬅️ output of each turn is captured as an OpenTelemetry span —
+  // but note WHERE it's wired: the vanilla loop stood up the tracer by hand, while
+  // here `trace: true` just asks Mastra to configure telemetry declaratively (see
+  // agent.ts). Same terminal trace, far less plumbing — that's the comparison.
+  // Here we only log the tool events the framework surfaces through `onTool`.
+  const { decision, auditText } = await runMastraGoalAgent(
+    org,
+    action,
+    (e) => {
+      if (e.tool === "search") log.tool(`search(${JSON.stringify(e.input)})`)
+      else if (e.ok) log.tool("submit_decision", { status: "committed" })
+      // A rejection isn't a failure: the sink refused an invalid draft and handed
+      // the model the reasons to fix on the next step — the retry loop working.
+      else log.tool("submit_decision", { status: "rejected", errors: e.errors ?? [] })
+    },
+    { trace: true },
+  )
 
-  if (auditText) console.log(`  💬 ${auditText}`)
-  console.log("\n--- committed decision ---")
-  console.log(decision ? JSON.stringify(decision, null, 2) : "(no decision submitted)")
+  if (auditText) log.say(auditText)
+  log.committed(decision)
 }
 
 main().catch((err) => {

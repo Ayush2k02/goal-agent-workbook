@@ -21,7 +21,9 @@ Rules:
   take actions listed in that goal's allowedActions.
 - Resolve real IDs before acting: use "search" to find tag and close-reason IDs.
   Never invent an ID.
-- At most ONE reply-producing action (DRAFT_REPLY) across the whole decision.
+- At most ONE reply-producing action (DRAFT_REPLY) across the whole decision. If
+  two goals both call for a reply, pick the single best-fitting goal and draft
+  once — do not emit the same reply under multiple goals.
 - Never promise or imply a refund, credit, or reversal.
 - If no goal applies, submit decision "abstain" with empty decisions.
 - Finish by calling "submit_decision" EXACTLY ONCE. If it returns validation

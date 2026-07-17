@@ -1,0 +1,818 @@
+<!--
+  demo-walkthrough.html — Loom demo script for the Goal Agent Workbook.
+  Sift-style doc (cream paper). Walkthrough sections are outline-only, to be
+  filled in later. The Telemetry section carries the two real trace runs,
+  color-coded to match the terminal.
+-->
+<meta charset="utf-8" />
+<title>Goal Agent Workbook — Demo Walkthrough</title>
+
+<style>
+  :root {
+    --paper:   #f6f1e6;
+    --paper-2: #fbf7ee;
+    --ink:     #2b2720;
+    --ink-2:   #5c554a;
+    --muted:   #8a8172;
+    --line:    #e3dac8;
+    --line-2:  #d8ceb8;
+    --accent:  #3a5a40;   /* forest */
+    --accent-2:#a6572e;   /* terracotta */
+    --chip:    #efe7d5;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: 64px 28px 120px; }
+
+  /* ---- masthead ---- */
+  .mast { border-bottom: 1px solid var(--line-2); padding-bottom: 28px; margin-bottom: 40px; }
+  .kicker {
+    font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent-2); font-weight: 700; margin-bottom: 14px;
+  }
+  h1 { font-size: 40px; line-height: 1.12; margin: 0 0 12px; letter-spacing: -.02em; font-weight: 800; }
+  .lede { font-size: 18px; color: var(--ink-2); margin: 0; max-width: 62ch; }
+  .meta-row { margin-top: 20px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    font-size: 12.5px; background: var(--chip); color: var(--ink-2);
+    border: 1px solid var(--line-2); border-radius: 999px; padding: 4px 12px;
+    font-weight: 500;
+  }
+  .chip b { color: var(--ink); font-weight: 700; }
+
+  /* ---- section scaffolding ---- */
+  h2 {
+    font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--muted); font-weight: 700; margin: 56px 0 20px;
+  }
+
+  .step {
+    border: 1px solid var(--line);
+    background: var(--paper-2);
+    border-radius: 14px;
+    padding: 20px 22px;
+    margin: 0 0 14px;
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 6px 18px;
+    align-items: start;
+  }
+  .step .num {
+    grid-row: span 2;
+    width: 34px; height: 34px; border-radius: 9px;
+    background: var(--accent); color: #f6f1e6;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .step h3 { margin: 2px 0 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+  .step p { margin: 4px 0 0; color: var(--ink-2); font-size: 15px; }
+  .step .fill {
+    margin-top: 14px;
+    border-top: 1px dashed var(--line-2);
+    padding-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+    font-style: italic;
+  }
+
+  .divider { height: 1px; background: var(--line-2); border: 0; margin: 56px 0; }
+
+  /* ---- legend ---- */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 8px 18px;
+    background: var(--paper-2); border: 1px solid var(--line);
+    border-radius: 12px; padding: 14px 18px; margin: 0 0 20px;
+    font-size: 13px; color: var(--ink-2);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+
+  /* ---- run header pills ---- */
+  .run-head {
+    display: flex; align-items: center; gap: 12px; margin: 30px 0 12px;
+  }
+  .run-head .tag {
+    font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase;
+    font-weight: 800; padding: 4px 11px; border-radius: 7px;
+  }
+  .tag.mastra  { background: #e7efe6; color: var(--accent); border: 1px solid #cfe0cc; }
+  .tag.vanilla { background: #f3e7dd; color: var(--accent-2); border: 1px solid #e6d2c1; }
+  .tag.clickable {
+    cursor: pointer; user-select: none;
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: filter .12s ease, transform .06s ease;
+  }
+  .tag.clickable:hover { filter: brightness(.97); }
+  .tag.clickable:active { transform: translateY(1px); }
+  .tag.clickable .caret { font-size: 9px; transition: transform .15s ease; opacity: .7; }
+  .tag.clickable[aria-expanded="true"] .caret { transform: rotate(90deg); }
+  .pill-hint { font-size: 12.5px; color: var(--muted); font-style: italic; }
+
+  /* ---- code comparison reveal ---- */
+  .compare {
+    display: none;
+    margin: 4px 0 30px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    background: var(--paper-2);
+  }
+  .compare.open { display: block; }
+  .compare-head {
+    padding: 12px 18px; border-bottom: 1px solid var(--line);
+    font-size: 13px; color: var(--ink-2);
+  }
+  .compare-head b { color: var(--ink); }
+  .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+  .compare-col { min-width: 0; }
+  .compare-col + .compare-col { border-left: 1px solid var(--line); }
+  .col-label {
+    display: flex; align-items: center; gap: 8px;
+    padding: 11px 16px; font-size: 12px; font-weight: 700;
+    letter-spacing: .04em; text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+  .col-label.mastra  { background: #eef4ed; color: var(--accent); }
+  .col-label.vanilla { background: #f6ece2; color: var(--accent-2); }
+  .col-label .file {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-weight: 500; text-transform: none; letter-spacing: 0;
+    color: var(--muted); font-size: 11.5px;
+  }
+  .code {
+    margin: 0; padding: 16px 18px; overflow-x: auto;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; line-height: 1.6; color: #2b2720;
+    background: #fbf8f1; white-space: pre;
+  }
+  .code .cm { color: #94836a; font-style: italic; }   /* comment */
+  .code .kw { color: #3a5a40; font-weight: 600; }      /* keyword */
+  .code .st { color: #a6572e; }                        /* string */
+  .code .fn { color: #2f6d8f; }                        /* call/ident */
+  .jobs {
+    padding: 12px 18px; border-top: 1px solid var(--line);
+    font-size: 12.5px; color: var(--ink-2);
+    display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center;
+  }
+  .jobs b { color: var(--ink); }
+  .jobs .j { background: var(--chip); border: 1px solid var(--line-2); border-radius: 999px; padding: 2px 9px; }
+  @media (max-width: 720px) {
+    .compare-grid { grid-template-columns: 1fr; }
+    .compare-col + .compare-col { border-left: 0; border-top: 1px solid var(--line); }
+  }
+  .run-head .cmd {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    font-size: 13px; color: var(--ink-2); background: var(--chip);
+    padding: 3px 9px; border-radius: 6px; border: 1px solid var(--line-2);
+  }
+  .run-note { color: var(--ink-2); font-size: 15px; margin: 0 0 12px; max-width: 66ch; }
+
+  /* ---- terminal ---- */
+  .term {
+    background: #1d1f21;
+    border-radius: 12px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    box-shadow: 0 12px 30px -18px rgba(0,0,0,.5), inset 0 0 0 1px #34373b;
+    margin: 0 0 34px;
+  }
+  .term-bar {
+    display: flex; gap: 7px; padding: 0 0 14px; margin: 0 0 12px;
+    border-bottom: 1px solid #2e3134;
+  }
+  .term-bar i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+  .term-bar i:nth-child(1) { background: #e05a4e; }
+  .term-bar i:nth-child(2) { background: #e0b23c; }
+  .term-bar i:nth-child(3) { background: #55b04b; }
+  .term pre {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: #d7d3c8;              /* base terminal foreground */
+    white-space: pre;
+    tab-size: 2;
+  }
+
+  /* ANSI-mapped palette (matches src/log.ts `c`) */
+  .ts    { color: #6b7075; }                 /* dim gray timestamp */
+  .info  { color: #8fbf7f; font-weight: 600; }  /* green INFO */
+  .warn  { color: #d7ba7d; font-weight: 600; }   /* yellow WARN */
+  .banner{ color: #f4efe4; font-weight: 700; }
+  .trace { color: #4ec9d6; }                 /* cyan ⟪trace⟫ */
+  .bold  { color: #f4efe4; font-weight: 700; }
+  .dim   { color: #8b9096; }                 /* dim meta / structured fields */
+  .in    { color: #6aa0f7; }                 /* blue ➡️ input region */
+  .out   { color: #c98bd0; }                 /* magenta ⬅️ output region */
+  .npm   { color: #6f757b; }                 /* npm lifecycle lines */
+
+  a { color: var(--accent); }
+
+  @media (prefers-color-scheme: dark) {
+    /* the doc deliberately keeps its cream identity in both themes */
+  }
+</style>
+
+<div class="wrap">
+
+  <div class="mast">
+    <div class="kicker">Sift · Internal · Loom Demo Script</div>
+    <h1>Goal Agent Workbook</h1>
+    <p class="lede">
+      A runnable walkthrough of Sift's autonomous goal agent — the same agent built two
+      ways (hand-written loop vs. Mastra), narrated end-to-end with real telemetry.
+      This page is the script for the recorded demo.
+    </p>
+    <div class="meta-row">
+      <span class="chip">Model <b>gemini-2.5-flash</b></span>
+      <span class="chip">Org <b>Lyft</b></span>
+      <span class="chip">Case <b>L2 — stock-pump post</b></span>
+      <span class="chip">Runners <b>vanilla · mastra · bench</b></span>
+    </div>
+  </div>
+
+  <!-- ======================= WALKTHROUGH OUTLINE ======================= -->
+  <h2>How to walk through the video</h2>
+
+  <div class="step">
+    <div class="num">1</div>
+    <h3>Cold open — what you're about to see</h3>
+    <p>Set the frame: one customer case in, one committed decision out.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">2</div>
+    <h3>What is a goal agent?</h3>
+    <p>Define it: goals an org configures → act (draft / tag-close) or abstain.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">3</div>
+    <h3>Where it sits in Sift</h3>
+    <p>After synthesis, on a single action — the eligibility gate before any model call.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">4</div>
+    <h3>The core workflow</h3>
+    <p>Gate → resolve real IDs via <code>search</code> → <code>submit_decision</code> → latch &amp; commit.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">5</div>
+    <h3>Two builds of the same agent</h3>
+    <p>Vanilla hand-written loop vs. Mastra — who owns which job.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">6</div>
+    <h3>Live run — Mastra on case L2</h3>
+    <p>Run it, watch the tool events stream, land on the committed decision.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">7</div>
+    <h3>Reading the trace</h3>
+    <p>LLM turns, tool calls, tokens &amp; latency, the decision as the real output.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">8</div>
+    <h3>Why Mastra — the encapsulation win</h3>
+    <p>Same behavior, far less plumbing; telemetry declared, not hand-wired.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">9</div>
+    <h3>Live run — vanilla on the same case</h3>
+    <p>The contrast: every framework job visible as your own code.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">10</div>
+    <h3>The frozen bench</h3>
+    <p>Is it still correct? Same agent, scored against pinned expectations.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <div class="step">
+    <div class="num">11</div>
+    <h3>Recap &amp; takeaways</h3>
+    <p>What to remember; where the real Sift files live.</p>
+    <div class="fill">↳ notes</div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ======================= TELEMETRY / TRACE SPANS ======================= -->
+  <h2>Telemetry — real AI trace spans</h2>
+
+  <p class="run-note">
+    Both runs decide the same case (<b>L2</b>, a stock-pump post) and reach the same
+    committed decision — tag <code>Irrelevant</code> + close. What differs is the shape of
+    the trace: Mastra emits one <b>agent-run</b> span tree (LLM turn + tool calls rolled up),
+    while the vanilla loop emits one flat <b>LLM turn</b> span per hand-written step.
+  </p>
+
+  <div class="legend">
+    <span><i class="sw" style="background:#4ec9d6"></i> <b>⟪trace⟫</b> span</span>
+    <span><i class="sw" style="background:#6aa0f7"></i> ➡️ input (prompt)</span>
+    <span><i class="sw" style="background:#c98bd0"></i> ⬅️ output (model)</span>
+    <span><i class="sw" style="background:#8fbf7f"></i> INFO</span>
+    <span><i class="sw" style="background:#d7ba7d"></i> WARN</span>
+    <span><i class="sw" style="background:#6b7075"></i> timestamp / structured fields</span>
+  </div>
+
+  <!-- ---------- MASTRA RUN ---------- -->
+  <div class="run-head">
+    <span class="tag mastra clickable" role="button" tabindex="0" aria-expanded="false"
+          data-toggle="code-compare">Mastra <span class="caret">▶</span></span>
+    <span class="cmd">pnpm mastra L2</span>
+    <span class="pill-hint">← click to compare the source vs. vanilla</span>
+  </div>
+
+  <!-- shared code comparison, toggled by either pill -->
+  <div class="compare" id="code-compare">
+    <div class="compare-head">
+      <b>Same agent, two builds.</b> The framework absorbs the loop, dispatch, history,
+      step cap, retry &amp; telemetry wiring — you keep the judgment (schema · tools · prompt).
+    </div>
+    <div class="compare-grid">
+      <div class="compare-col">
+        <div class="col-label mastra">Mastra <span class="file">src/agent.ts</span></div>
+<pre class="code"><span class="cm">// the whole agent, declared — orchestration is the framework's job</span>
+<span class="kw">const</span> searchTool = <span class="fn">createTool</span>({
+  id: <span class="st">"search"</span>,
+  inputSchema: searchInputSchema,
+  <span class="fn">execute</span>: <span class="kw">async</span> ({ context }) => <span class="fn">runSearch</span>(org, context),
+})
+
+<span class="kw">const</span> submitDecisionTool = <span class="fn">createTool</span>({
+  id: <span class="st">"submit_decision"</span>,
+  inputSchema: decisionInputSchema,
+  <span class="fn">execute</span>: <span class="kw">async</span> ({ context }) => sink.<span class="fn">submit</span>(context), <span class="cm">// latch + retry</span>
+})
+
+<span class="kw">const</span> agent = <span class="kw">new</span> <span class="fn">Agent</span>({
+  name: <span class="st">"Goal Agent"</span>,
+  instructions: SYSTEM_PROMPT,
+  model: <span class="fn">google</span>(MODEL),
+  tools: { search: searchTool, submit_decision: submitDecisionTool },
+})
+
+<span class="cm">// loop · dispatch · history · step cap · retry — all inside one call:</span>
+<span class="kw">const</span> res = <span class="kw">await</span> agent.<span class="fn">generateLegacy</span>(
+  <span class="fn">buildInputPrompt</span>(action, org, org.goals),
+  { maxSteps: <span class="st">12</span> },
+)</pre>
+      </div>
+      <div class="compare-col">
+        <div class="col-label vanilla">Vanilla <span class="file">src/01-vanilla.ts</span></div>
+<pre class="code"><span class="cm">// the for-loop IS the agent — you do every framework job</span>
+<span class="kw">const</span> TOOLS = {
+  search:          <span class="fn">tool</span>({ parameters: searchInputSchema }), <span class="cm">// no</span>
+  submit_decision: <span class="fn">tool</span>({ parameters: decisionInputSchema }), <span class="cm">// execute</span>
+} <span class="cm">// → the AI SDK hands the call back to US: the loop is ours</span>
+
+<span class="kw">const</span> messages = [{ role: <span class="st">"user"</span>, content: <span class="fn">buildInputPrompt</span>(...) }]
+
+<span class="kw">for</span> (<span class="kw">let</span> step = <span class="st">1</span>; step &lt;= MAX_STEPS; step++) {   <span class="cm">// the loop</span>
+  <span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">generateText</span>({
+    model: <span class="fn">google</span>(MODEL), system: SYSTEM_PROMPT, tools: TOOLS, messages,
+  })
+
+  <span class="kw">if</span> (res.finishReason !== <span class="st">"tool-calls"</span>) <span class="kw">break</span>  <span class="cm">// step cap + exit</span>
+  messages.<span class="fn">push</span>(...res.response.messages)          <span class="cm">// history threading</span>
+
+  <span class="kw">const</span> toolResults = res.toolCalls.<span class="fn">map</span>((call) =>   <span class="cm">// dispatch</span>
+    <span class="fn">runTool</span>(org, call.toolName, call.args, sink)) <span class="cm">// + retry on error</span>
+  messages.<span class="fn">push</span>({ role: <span class="st">"tool"</span>, content: toolResults })
+}</pre>
+      </div>
+    </div>
+    <div class="jobs">
+      <b>Who owns each job:</b>
+      <span class="j">tool defs</span><span class="j">the loop</span><span class="j">dispatch</span>
+      <span class="j">history</span><span class="j">step cap</span><span class="j">retry</span><span class="j">telemetry wiring</span>
+      — declared on the left, hand-written on the right.
+    </div>
+  </div>
+  <p class="run-note">
+    One <code>agent run</code> span with three nested children — the whole multi-turn
+    generation folded into a single <code>LLM turn</code>, plus a <code>tool call</code>
+    span per invocation. The framework wired the tracer; the runner only narrates the tool
+    events it surfaces.
+  </p>
+
+  <div class="term">
+    <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="npm">&gt; goal-agent-workbook@1.0.0 mastra /Users/ayushamawate/goal-agent-workbook
+&gt; tsx --env-file-if-exists=.env src/02-mastra.ts L2</span>
+
+<span class="ts">[23:13:46.770] </span><span class="info">INFO:</span> <span class="banner">MASTRA goal agent · gemini-2.5-flash · Lyft · case act_l2 (L2)</span>
+<span class="ts">[23:13:50.524] </span><span class="info">INFO:</span> 🔧 search({"kind":"tag","query":"Irrelevant"})
+<span class="ts">[23:13:50.525] </span><span class="info">INFO:</span> 🔧 search({"kind":"close_reason","query":"Irrelevant"})
+<span class="ts">[23:13:53.361] </span><span class="info">INFO:</span> 🔧 submit_decision → committed
+<span class="trace">  ⟪trace⟫ </span><span class="bold">agent run</span><span class="dim"> · Goal Agent · 7568ms · 3 tool calls</span>
+<span class="trace">    ⟪trace⟫ </span><span class="bold">LLM turn</span><span class="dim"> · gemini-2.5-flash · 7561ms · finish=stop · 4473→217 tok</span>
+<span class="in">            ➡️  input
+            │ ▸ system
+            │ You are a customer-support Goal Agent.
+            │
+            │ You run automatically on ONE case. Decide which of the org's enabled goals apply
+            │ (none, one, or several), and for each applying goal either ACT or ABSTAIN.
+            │
+            │ Rules:
+            │ - Treat the ACTION-CONTEXT blocks as ground truth. Do not invent facts.
+            │ - A goal only applies if the case clearly matches its outcome, and you may only
+            │   take actions listed in that goal's allowedActions.
+            │ - Resolve real IDs before acting: use "search" to find tag and close-reason IDs.
+            │   Never invent an ID.
+            │ - At most ONE reply-producing action (DRAFT_REPLY) across the whole decision. If
+            │   two goals both call for a reply, pick the single best-fitting goal and draft
+            │ … (+49 more lines)</span>
+<span class="out">            ⬅️  output
+            │ ▸ text:
+            │ The case has been tagged and closed as irrelevant.</span>
+<span class="trace">    ⟪trace⟫ </span><span class="bold">tool call · search</span><span class="dim"> · 1ms</span>
+<span class="in">            ➡️  input
+            │ {
+            │   "kind": "tag",
+            │   "query": "Irrelevant"
+            │ }</span>
+<span class="out">            ⬅️  output
+            │ {
+            │   "kind": "tag",
+            │   "results": [
+            │     {
+            │       "id": "tag_lyft_irrelevant",
+            │       "label": "Irrelevant"
+            │     }
+            │   ]
+            │ }</span>
+<span class="trace">    ⟪trace⟫ </span><span class="bold">tool call · search</span><span class="dim"> · 1ms</span>
+<span class="in">            ➡️  input
+            │ {
+            │   "kind": "close_reason",
+            │   "query": "Irrelevant"
+            │ }</span>
+<span class="out">            ⬅️  output
+            │ {
+            │   "kind": "close_reason",
+            │   "results": [
+            │     {
+            │       "id": "cr_lyft_irrelevant",
+            │       "label": "Irrelevant"
+            │     }
+            │   ]
+            │ }</span>
+<span class="trace">    ⟪trace⟫ </span><span class="bold">tool call · submit_decision</span><span class="dim"> · 1ms</span>
+<span class="in">            ➡️  input
+            │ {
+            │   "decision": "act",
+            │   "decisions": [
+            │     {
+            │       "goalId": "goal_tag_close_irrelevant",
+            │       "actions": [
+            │         {
+            │           "type": "ADD_TAG",
+            │           "params": {
+            │             "tagId": "tag_lyft_irrelevant"
+            │           },
+            │           "reason": "Customer post is a stock-pump post with no support need."
+            │         },
+            │         {
+            │ … (+15 more lines)</span>
+<span class="out">            ⬅️  output
+            │ {
+            │   "ok": true,
+            │   "committed": {
+            │     "decision": "act",
+            │     "decisions": [
+            │       {
+            │         "goalId": "goal_tag_close_irrelevant",
+            │         "actions": [
+            │           {
+            │             "type": "ADD_TAG",
+            │             "params": {
+            │               "tagId": "tag_lyft_irrelevant"
+            │             },
+            │             "reason": "Customer post is a stock-pump post with no support need."
+            │ … (+18 more lines)</span>
+<span class="ts">[23:13:54.344] </span><span class="info">INFO:</span> 💬 The case has been tagged and closed as irrelevant.
+<span class="ts">[23:13:54.344] </span><span class="info">INFO:</span> committed decision
+<span class="dim">    decision: {
+      "decision": "act",
+      "decisions": [
+        {
+          "goalId": "goal_tag_close_irrelevant",
+          "actions": [
+            {
+              "type": "ADD_TAG",
+              "params": {
+                "tagId": "tag_lyft_irrelevant"
+              },
+              "reason": "Customer post is a stock-pump post with no support need."
+            },
+            {
+              "type": "CLOSE_ACTION_WITH_REASON",
+              "params": {
+                "closeReasonId": "cr_lyft_irrelevant"
+              },
+              "reason": "Customer post is a stock-pump post with no support need."
+            }
+          ]
+        }
+      ],
+      "confidence": "high",
+      "evidence": [
+        "$LYFT calls printing 🚀🚀 to the moon, buy before earnings"
+      ],
+      "humanSummary": "Tagged and closed the case as irrelevant due to a stock-pump post."
+    }</span></pre>
+  </div>
+
+  <!-- ---------- VANILLA RUN ---------- -->
+  <div class="run-head">
+    <span class="tag vanilla clickable" role="button" tabindex="0" aria-expanded="false"
+          data-toggle="code-compare">Vanilla <span class="caret">▶</span></span>
+    <span class="cmd">pnpm vanilla L2</span>
+    <span class="pill-hint">← click to compare the source vs. mastra</span>
+  </div>
+  <p class="run-note">
+    Same case, no framework. The loop runs three visible steps — <b>step 1</b> asks for both
+    <code>search</code> calls, <b>step 2</b> submits the decision, <b>step 3</b> writes the audit
+    sentence and stops. Each step is its own flat <code>LLM turn</code> span, and the tool
+    events carry a <code>step</code> field.
+  </p>
+
+  <div class="term">
+    <div class="term-bar"><i></i><i></i><i></i></div>
+<pre><span class="npm">&gt; goal-agent-workbook@1.0.0 vanilla /Users/ayushamawate/goal-agent-workbook
+&gt; tsx --env-file-if-exists=.env src/01-vanilla.ts L2</span>
+
+<span class="ts">[23:15:05.195] </span><span class="info">INFO:</span> <span class="banner">VANILLA goal agent · gemini-2.5-flash · Lyft · case act_l2 (L2)</span>
+<span class="trace">  ⟪trace⟫ </span><span class="bold">[step 1] LLM turn</span><span class="dim"> · gemini-2.5-flash · 4278ms · finish=tool-calls · 1334→40 tok</span>
+<span class="in">          ➡️  input
+          │ ▸ system
+          │ You are a customer-support Goal Agent.
+          │
+          │ You run automatically on ONE case. Decide which of the org's enabled goals apply
+          │ (none, one, or several), and for each applying goal either ACT or ABSTAIN.
+          │
+          │ Rules:
+          │ - Treat the ACTION-CONTEXT blocks as ground truth. Do not invent facts.
+          │ - A goal only applies if the case clearly matches its outcome, and you may only
+          │   take actions listed in that goal's allowedActions.
+          │ - Resolve real IDs before acting: use "search" to find tag and close-reason IDs.
+          │   Never invent an ID.
+          │ - At most ONE reply-producing action (DRAFT_REPLY) across the whole decision. If
+          │   two goals both call for a reply, pick the single best-fitting goal and draft
+          │   once — do not emit the same reply under multiple goals.
+          │ - Never promise or imply a refund, credit, or reversal.
+          │ - If no goal applies, submit decision "abstain" with empty decisions.
+          │ - Finish by calling "submit_decision" EXACTLY ONCE. If it returns validation
+          │   errors, read them and call it again with fixes. After it succeeds, reply with
+          │   one short audit sentence.
+          │ ▸ user
+          │ # Org: Lyft
+          │
+          │ ## ACTION-CONTEXT
+          │ ### What we already know
+          │ No prior facts on file.
+          │
+          │ ### Current action act_l2 (#6302)
+          │ Status: OPEN · Platform: x · Customer: @degen
+          │ Thread:
+          │   1. Customer · 2026-07-05T09:10Z · x
+          │      $LYFT calls printing 🚀🚀 to the moon, buy before earnings
+          │
+          │ ### Internal notes
+          │ No internal notes.
+          │
+          │ ### Customer timeline
+          │ No prior cases.
+          │
+          │ ## Enabled goals
+          │ … (+23 more lines)</span>
+<span class="out">          ⬅️  output
+          │ ▸ wants tool call: search
+          │ {
+          │   "kind": "tag",
+          │   "query": "Irrelevant"
+          │ }
+          │ ▸ wants tool call: search
+          │ {
+          │   "kind": "close_reason",
+          │   "query": "Irrelevant"
+          │ }</span>
+<span class="ts">[23:15:09.480] </span><span class="info">INFO:</span> 🔧 search · tag "Irrelevant"
+<span class="dim">    step: 1</span>
+<span class="ts">[23:15:09.481] </span><span class="info">INFO:</span> 🔧 search · close_reason "Irrelevant"
+<span class="dim">    step: 1</span>
+<span class="trace">  ⟪trace⟫ </span><span class="bold">[step 2] LLM turn</span><span class="dim"> · gemini-2.5-flash · 3802ms · finish=tool-calls · 1464→161 tok</span>
+<span class="in">          ➡️  input
+          │ ▸ system
+          │ You are a customer-support Goal Agent.
+          │
+          │ You run automatically on ONE case. Decide which of the org's enabled goals apply
+          │ (none, one, or several), and for each applying goal either ACT or ABSTAIN.
+          │
+          │ Rules:
+          │ - Treat the ACTION-CONTEXT blocks as ground truth. Do not invent facts.
+          │ - A goal only applies if the case clearly matches its outcome, and you may only
+          │   take actions listed in that goal's allowedActions.
+          │ - Resolve real IDs before acting: use "search" to find tag and close-reason IDs.
+          │   Never invent an ID.
+          │ - At most ONE reply-producing action (DRAFT_REPLY) across the whole decision. If
+          │   two goals both call for a reply, pick the single best-fitting goal and draft
+          │   once — do not emit the same reply under multiple goals.
+          │ - Never promise or imply a refund, credit, or reversal.
+          │ - If no goal applies, submit decision "abstain" with empty decisions.
+          │ - Finish by calling "submit_decision" EXACTLY ONCE. If it returns validation
+          │   errors, read them and call it again with fixes. After it succeeds, reply with
+          │   one short audit sentence.
+          │ ▸ user
+          │ # Org: Lyft
+          │
+          │ ## ACTION-CONTEXT
+          │ ### What we already know
+          │ No prior facts on file.
+          │
+          │ ### Current action act_l2 (#6302)
+          │ Status: OPEN · Platform: x · Customer: @degen
+          │ Thread:
+          │   1. Customer · 2026-07-05T09:10Z · x
+          │      $LYFT calls printing 🚀🚀 to the moon, buy before earnings
+          │
+          │ ### Internal notes
+          │ No internal notes.
+          │
+          │ ### Customer timeline
+          │ No prior cases.
+          │
+          │ ## Enabled goals
+          │ … (+29 more lines)</span>
+<span class="out">          ⬅️  output
+          │ ▸ wants tool call: submit_decision
+          │ {
+          │   "decision": "act",
+          │   "humanSummary": "The case is a stock-pump post and has been tagged and closed as irrelevant.",
+          │   "evidence": [
+          │     "$LYFT calls printing 🚀🚀 to the moon, buy before earnings"
+          │   ],
+          │   "confidence": "high",
+          │   "decisions": [
+          │     {
+          │       "goalId": "goal_tag_close_irrelevant",
+          │       "actions": [
+          │         {
+          │           "type": "ADD_TAG",
+          │           "params": {
+          │             "tagId": "tag_lyft_irrelevant"
+          │           },
+          │           "reason": "Customer post is a stock-pump post."
+          │         },
+          │         {
+          │           "reason": "Customer post is a stock-pump post.",
+          │           "type": "CLOSE_ACTION_WITH_REASON",
+          │           "params": {
+          │             "closeReasonId": "cr_lyft_irrelevant"
+          │           }
+          │         }
+          │       ]
+          │     }
+          │   ]
+          │ }</span>
+<span class="ts">[23:15:13.289] </span><span class="info">INFO:</span> 🔧 submit_decision · act
+<span class="dim">    step: 2
+    detail: [
+      "• goal_tag_close_irrelevant → ADD_TAG tag_lyft_irrelevant, CLOSE_ACTION_WITH_REASON cr_lyft_irrelevant"
+    ]</span>
+<span class="trace">  ⟪trace⟫ </span><span class="bold">[step 3] LLM turn</span><span class="dim"> · gemini-2.5-flash · 1489ms · finish=stop · 1810→17 tok</span>
+<span class="in">          ➡️  input
+          │ ▸ system
+          │ You are a customer-support Goal Agent.
+          │
+          │ You run automatically on ONE case. Decide which of the org's enabled goals apply
+          │ (none, one, or several), and for each applying goal either ACT or ABSTAIN.
+          │
+          │ Rules:
+          │ - Treat the ACTION-CONTEXT blocks as ground truth. Do not invent facts.
+          │ - A goal only applies if the case clearly matches its outcome, and you may only
+          │   take actions listed in that goal's allowedActions.
+          │ - Resolve real IDs before acting: use "search" to find tag and close-reason IDs.
+          │   Never invent an ID.
+          │ - At most ONE reply-producing action (DRAFT_REPLY) across the whole decision. If
+          │   two goals both call for a reply, pick the single best-fitting goal and draft
+          │   once — do not emit the same reply under multiple goals.
+          │ - Never promise or imply a refund, credit, or reversal.
+          │ - If no goal applies, submit decision "abstain" with empty decisions.
+          │ - Finish by calling "submit_decision" EXACTLY ONCE. If it returns validation
+          │   errors, read them and call it again with fixes. After it succeeds, reply with
+          │   one short audit sentence.
+          │ ▸ user
+          │ # Org: Lyft
+          │
+          │ ## ACTION-CONTEXT
+          │ ### What we already know
+          │ No prior facts on file.
+          │
+          │ ### Current action act_l2 (#6302)
+          │ Status: OPEN · Platform: x · Customer: @degen
+          │ Thread:
+          │   1. Customer · 2026-07-05T09:10Z · x
+          │      $LYFT calls printing 🚀🚀 to the moon, buy before earnings
+          │
+          │ ### Internal notes
+          │ No internal notes.
+          │
+          │ ### Customer timeline
+          │ No prior cases.
+          │
+          │ ## Enabled goals
+          │ … (+33 more lines)</span>
+<span class="out">          ⬅️  output
+          │ ▸ text:
+          │ The case is a stock-pump post and has been tagged and closed as irrelevant.</span>
+<span class="ts">[23:15:14.784] </span><span class="info">INFO:</span> 💬 The case is a stock-pump post and has been tagged and closed as irrelevant.
+<span class="dim">    step: 3</span>
+<span class="ts">[23:15:14.784] </span><span class="info">INFO:</span> committed decision
+<span class="dim">    decision: {
+      "decision": "act",
+      "decisions": [
+        {
+          "goalId": "goal_tag_close_irrelevant",
+          "actions": [
+            {
+              "type": "ADD_TAG",
+              "params": {
+                "tagId": "tag_lyft_irrelevant"
+              },
+              "reason": "Customer post is a stock-pump post."
+            },
+            {
+              "type": "CLOSE_ACTION_WITH_REASON",
+              "params": {
+                "closeReasonId": "cr_lyft_irrelevant"
+              },
+              "reason": "Customer post is a stock-pump post."
+            }
+          ]
+        }
+      ],
+      "confidence": "high",
+      "evidence": [
+        "$LYFT calls printing 🚀🚀 to the moon, buy before earnings"
+      ],
+      "humanSummary": "The case is a stock-pump post and has been tagged and closed as irrelevant."
+    }</span></pre>
+  </div>
+
+</div>
+
+<script>
+  (function () {
+    var panel = document.getElementById("code-compare");
+    var triggers = document.querySelectorAll('[data-toggle="code-compare"]');
+
+    function setExpanded(open) {
+      triggers.forEach(function (t) { t.setAttribute("aria-expanded", String(open)); });
+    }
+
+    function toggle(scrollTo) {
+      var open = !panel.classList.contains("open");
+      panel.classList.toggle("open", open);
+      setExpanded(open);
+      if (open && scrollTo) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    triggers.forEach(function (t) {
+      t.addEventListener("click", function () { toggle(true); });
+      t.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(true); }
+      });
+    });
+  })();
+</script>

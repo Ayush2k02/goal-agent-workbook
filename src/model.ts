@@ -14,7 +14,7 @@
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
 
-export const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.0-flash"
+export const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash"
 
 const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY
 if (!apiKey) {

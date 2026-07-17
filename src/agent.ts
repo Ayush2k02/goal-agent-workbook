@@ -11,27 +11,32 @@
  * threading, step cap, retry. Compare with 01-vanilla.ts, which hand-writes them.
  */
 
+import { Mastra } from "@mastra/core"
 import { Agent } from "@mastra/core/agent"
 import { createTool } from "@mastra/core/tools"
 import type { Action, Org } from "./data.store"
 import { google, MODEL } from "./model"
 import { buildInputPrompt, SYSTEM_PROMPT } from "./prompt"
 import { decisionInputSchema, searchInputSchema } from "./schema"
+import { MastraLLMTraceExporter } from "./telemetry"
 import { createDecisionSink, runSearch, type DecisionResult } from "./tools"
 
 export type ToolEvent =
   | { tool: "search"; input: unknown }
-  | { tool: "submit_decision"; ok: boolean }
+  | { tool: "submit_decision"; ok: boolean; errors?: string[] }
 
 /**
  * Run the goal agent on one action for one org. Returns the committed decision
  * (or null if the agent abstained without submitting). `onTool` lets a caller
- * observe tool calls (the demo narrates them; the bench stays quiet).
+ * observe tool calls (the demo narrates them; the bench stays quiet). `trace`
+ * turns on Mastra's telemetry so each LLM turn is exported as a span — the demo
+ * runner enables it; the bench leaves it off to stay silent and deterministic.
  */
 export async function runMastraGoalAgent(
   org: Org,
   action: Action,
   onTool: (e: ToolEvent) => void = () => {},
+  opts: { trace?: boolean } = {},
 ) {
   // Per-run tool state — the latch is scoped to this run (Sift injects the
   // action id via requestContext; the closure here is the toy equivalent).
@@ -55,7 +60,7 @@ export async function runMastraGoalAgent(
     // read by the model and corrected on the next step — no extra plumbing.
     execute: async ({ context }): Promise<DecisionResult> => {
       const result = sink.submit(context)
-      onTool({ tool: "submit_decision", ok: result.ok })
+      onTool({ tool: "submit_decision", ok: result.ok, errors: result.ok ? undefined : result.errors })
       return result
     },
   })
@@ -67,6 +72,30 @@ export async function runMastraGoalAgent(
     tools: { search: searchTool, submit_decision: submitDecisionTool },
   })
 
-  const res = await agent.generate(buildInputPrompt(action, org, org.goals), { maxSteps: 12 })
+  // Telemetry, the Mastra way (opt-in). Where the vanilla loop stands up an OTel
+  // provider by hand and flags every model call, here we just DECLARE it: register
+  // the agent on a Mastra instance with an `observability` config (Mastra's AI
+  // Tracing — the current, non-deprecated path) and the framework owns the wiring.
+  // It emits typed AI spans and drives our `MastraLLMTraceExporter`, which renders
+  // each `llm_generation` turn. Registration mutates `agent` to carry the tracer,
+  // so the generateLegacy call below is traced automatically. The bench leaves
+  // `trace` off, so it stays silent and pays nothing for tracing.
+  if (opts.trace) {
+    new Mastra({
+      agents: { goalAgent: agent },
+      // Opt out of the legacy OTel `telemetry` (deprecated) so it doesn't warn —
+      // AI Tracing via `observability` is the path we're using.
+      telemetry: { enabled: false },
+      observability: {
+        configs: {
+          workbook: { serviceName: "goal-agent-workbook", exporters: [new MastraLLMTraceExporter()] },
+        },
+      },
+    })
+  }
+
+  // `generateLegacy` is Mastra's path for AI SDK v4 models (our @ai-sdk/google
+  // v1 provider). The v5-only `generate()`/`stream()` reject v4 models outright.
+  const res = await agent.generateLegacy(buildInputPrompt(action, org, org.goals), { maxSteps: 12 })
   return { decision: sink.result(), auditText: res.text.trim() }
 }
